@@ -47,7 +47,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#0a0a0a" id="theme-color-meta">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Album Review App v0.05</title>
+  <title>Album Review App v0.06</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23f59e0b'/%3E%3Cstop offset='100%25' style='stop-color:%23ec4899'/%3E%3C/linearGradient%3E%3CradialGradient id='shine'%3E%3Cstop offset='0%25' style='stop-color:%23ffffff;stop-opacity:0.3'/%3E%3Cstop offset='100%25' style='stop-color:%23ffffff;stop-opacity:0'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='50' cy='50' r='48' fill='%23000000'/%3E%3Ccircle cx='50' cy='50' r='42' fill='%23000000' stroke='%23333333' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='36' fill='%23000000' stroke='%23333333' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='30' fill='%23000000' stroke='%23333333' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='24' fill='%23000000' stroke='%23333333' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='18' fill='url(%23g)'/%3E%3Ccircle cx='50' cy='50' r='18' fill='url(%23shine)'/%3E%3Ccircle cx='50' cy='50' r='6' fill='none'/%3E%3C/svg%3E">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -3348,7 +3348,7 @@
         <div className={`min-h-screen ${theme.bg} ${theme.text} transition-colors duration-200`}>
           {/* Authentication Modal */}
           {showAuthModal && (
-            <div className="fixed inset-0 flex items-center justify-center z-[80] p-4">
+            <div className="fixed inset-0 flex items-center justify-center z-[10000] p-4">
               {/* Animated background elements */}
               <div className="absolute inset-0 overflow-hidden">
                 <div className={`absolute top-20 left-10 w-72 h-72 bg-gradient-to-br ${accent.from} ${accent.to} rounded-full opacity-20 blur-3xl animate-float`} style={{animationDuration: '8s'}} />
@@ -3481,7 +3481,7 @@
 
           {/* Welcome Modal for New Users - Multi-Step Onboarding */}
           {showWelcomeModal && (
-            <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-start sm:items-center justify-center z-[90] p-4 pt-8 sm:pt-4 overflow-y-auto">
+            <div className="fixed inset-0 bg-black/95 backdrop-blur-md flex items-start sm:items-center justify-center z-[10000] p-4 pt-8 sm:pt-4 overflow-y-auto">
               <div className={`relative w-full max-w-lg my-auto transition-all duration-300 ${welcomeModalClosing ? 'scale-95 opacity-0' : 'scale-100 opacity-100'}`}>
                 <WelcomeOnboarding 
                   onComplete={() => { 
@@ -3509,7 +3509,7 @@
 
           {/* Delete Account Modal */}
           {showDeleteAccount && (
-            <div className="fixed inset-0 bg-black/95 backdrop-blur-sm flex items-center justify-center z-[80] p-4" onClick={() => { setShowDeleteAccount(false); setDeleteAccountPassword(''); setDeleteAccountError(''); }}>
+            <div className="fixed inset-0 bg-black/95 backdrop-blur-sm flex items-center justify-center z-[10000] p-4" onClick={() => { setShowDeleteAccount(false); setDeleteAccountPassword(''); setDeleteAccountError(''); }}>
               <div className={`${theme.cardBg} rounded-2xl p-6 max-w-md w-full border ${theme.cardBorder} shadow-2xl animate-scaleIn`} onClick={e => e.stopPropagation()}>
                 <div className="flex items-center gap-3 mb-4">
                   <div className="p-2 rounded-xl bg-red-500/20">
@@ -4015,7 +4015,7 @@
           {/* View/Add/Edit Album Modal */}
           {(viewingAlbum || isAdding) && (
             <div 
-              className={`fixed inset-0 bg-black/95 flex items-center justify-center z-[85] p-4 ${isModalClosing ? 'animate-fadeOut' : 'animate-fadeIn'}`} 
+              className={`fixed inset-0 bg-black/95 flex items-center justify-center z-[10000] p-4 ${isModalClosing ? 'animate-fadeOut' : 'animate-fadeIn'}`} 
               style={{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', willChange: 'opacity' }}
               onClick={handleModalClose}
             >
@@ -5048,7 +5048,7 @@
                 </div>
                 
                 {/* Version */}
-                <div className={`text-[10px] ${theme.textMuted} text-center mt-2`}>Album Archive v0.05</div>
+                <div className={`text-[10px] ${theme.textMuted} text-center mt-2`}>Album Archive v0.06</div>
               </div>
             </div>
           )}
