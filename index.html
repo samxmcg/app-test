@@ -1458,23 +1458,23 @@
           // Load albums from Supabase
           const albumsData = await supabaseDB.getAlbums(userId);
           if (albumsData && albumsData.length > 0) {
-            // Convert Supabase format to app format
+            // Convert Supabase format to app format (using OLD property names for compatibility)
             const formattedAlbums = albumsData.map(album => ({
               id: album.album_id,
-              artist: album.artist_name,
-              album: album.album_name,
-              year: album.release_year,
-              date: album.review_date,
-              artwork: album.artwork_url,
+              artistName: album.artist_name,
+              albumName: album.album_name,
+              albumCover: album.artwork_url,
+              releaseYear: album.release_year,
+              dateAdded: album.review_date,
               genres: album.genres || [],
-              tracklist: album.tracklist || [],
+              songs: album.tracklist || [],
               tagline: album.tagline || '',
-              review: album.review_text || '',
+              details: album.review_text || '',
               score: album.score,
               lovedPercent: album.loved_percent || 0,
               okPercent: album.ok_percent || 0,
               skipPercent: album.skip_percent || 0,
-              inProgress: album.in_progress || false,
+              isInProgress: album.in_progress || false,
               dbId: album.id // Keep Supabase ID for updates
             }));
             setAlbums(formattedAlbums);
@@ -2345,26 +2345,13 @@
               }
             }
             
-            // Pre-fetch and compress cover art
-            let compressedCover = null;
-            if (fullAlbum.coverArtUrl) {
-              try {
-                const response = await fetch(fullAlbum.coverArtUrl);
-                const blob = await response.blob();
-                const file = new File([blob], 'cover.jpg', { type: blob.type });
-                compressedCover = await compressImage(file, 40);
-              } catch (err) {
-                console.error('Cover art fetch error:', err);
-              }
-            }
-            
             preparedData = {
               songs: newSongs,
               albumTitle: fullAlbum.albumTitle,
               artistName: fullAlbum.artistName,
               releaseYear: fullAlbum.releaseYear,
               genreData,
-              cover: compressedCover
+              coverUrl: fullAlbum.coverArtUrl // Just store URL, fetch later
             };
           }
           
@@ -2388,7 +2375,22 @@
                 setGenreTags(preparedData.genreData.tags);
                 setGenres(preparedData.genreData.string);
               }
-              if (preparedData.cover) setAlbumCover(preparedData.cover);
+              
+              // Fetch and compress cover art in background (non-blocking)
+              if (preparedData.coverUrl) {
+                (async () => {
+                  try {
+                    const response = await fetch(preparedData.coverUrl);
+                    const blob = await response.blob();
+                    const file = new File([blob], 'cover.jpg', { type: blob.type });
+                    const compressed = await compressImage(file, 40);
+                    setAlbumCover(compressed);
+                  } catch (err) {
+                    console.error('Background cover art fetch error:', err);
+                  }
+                })();
+              }
+              
               setHasUnsavedChanges(true);
             }
           }, 400);
@@ -2833,12 +2835,21 @@
         // Only require album name, artist, and release year - tracks are optional
         // If tracks exist, only validate ones with titles
         const songsWithTitles = songs.filter(s => s.title.trim());
-        if (!albumName.trim() || !artistName.trim() || !releaseYear) return;
+        if (!albumName.trim() || !artistName.trim() || !releaseYear) {
+          setImageError('Album name, artist, and year are required');
+          setTimeout(() => setImageError(''), 3000);
+          return;
+        }
         
         if (!user) {
           console.error('No user logged in');
+          setImageError('You must be logged in to save');
+          setTimeout(() => setImageError(''), 3000);
           return;
         }
+        
+        // Show saving state
+        setImageError('Saving...');
         
         // Automatic In Progress state management:
         // If user manually set In Progress state, respect it. Otherwise, auto-determine based on ratings.
@@ -2862,67 +2873,79 @@
           album_id: albumId,
           artist_name: artistName.trim(),
           album_name: albumName.trim(),
-          release_year: releaseYear,
+          release_year: parseInt(releaseYear, 10), // Ensure integer
           review_date: new Date(reviewDate).toISOString().split('T')[0], // YYYY-MM-DD format
           artwork_url: albumCover || null,
           genres: genreList.length > 0 ? genreList : [],
-          tracklist: songsWithTitles.map(s => ({ ...s })),
+          tracklist: songsWithTitles.length > 0 ? songsWithTitles.map(s => ({ ...s })) : [],
           tagline: tagline.trim() || null,
           review_text: details.trim() || null,
-          score: stats.averageScore,
-          loved_percent: stats.lovedPercent,
-          ok_percent: stats.okPercent,
-          skip_percent: stats.skipPercent,
+          score: parseFloat(stats.score) || 0,
+          loved_percent: parseInt(stats.lovedPct, 10) || 0,
+          ok_percent: parseInt(stats.neutralPct, 10) || 0,
+          skip_percent: parseInt(stats.dislikedPct, 10) || 0,
           in_progress: finalIsInProgress
         };
+        
+        console.log('Album data to save:', albumData);
         
         try {
           // Check if this is an update or new album
           const existingAlbum = albums.find(a => a.id === albumId);
           
+          let savedData;
           if (existingAlbum && existingAlbum.dbId) {
             // Update existing album
-            await supabaseDB.updateAlbum(existingAlbum.dbId, albumData);
+            console.log('Updating album:', existingAlbum.dbId);
+            savedData = await supabaseDB.updateAlbum(existingAlbum.dbId, albumData);
           } else {
             // Create new album
-            await supabaseDB.createAlbum(user.id, albumData);
+            console.log('Creating new album for user:', user.id);
+            savedData = await supabaseDB.createAlbum(user.id, albumData);
           }
           
-          // Reload data from Supabase
+          console.log('Save successful:', savedData);
+          
+          // Reload data from Supabase and wait for it
           await loadSupabaseData(user.id);
+          
           setUserSetInProgress(false); // Reset flag after save
           setHasUnsavedChanges(false);
+          setImageError('Saved successfully!');
+          setTimeout(() => setImageError(''), 2000);
+          
+          // Build album object for viewing (using OLD property names)
+          const savedAlbum = {
+            id: albumId,
+            artistName: artistName.trim(),
+            albumName: albumName.trim(),
+            releaseYear: releaseYear,
+            dateAdded: new Date(reviewDate).toISOString().split('T')[0],
+            albumCover: albumCover || null,
+            genres: genreList,
+            songs: songsWithTitles,
+            tagline: tagline.trim() || '',
+            details: details.trim() || '',
+            score: stats.score,
+            lovedPercent: stats.lovedPct,
+            okPercent: stats.neutralPct,
+            skipPercent: stats.dislikedPct,
+            isInProgress: finalIsInProgress,
+            dbId: savedData?.id
+          };
           
           if (editingInModal || isAdding) {
             // Keep modal open and show the album review
             setIsAdding(false);
             setEditingInModal(false);
-            // Find the saved album to view it
-            const savedAlbum = albums.find(a => a.id === albumId) || {
-              id: albumId,
-              artist: artistName.trim(),
-              album: albumName.trim(),
-              year: releaseYear,
-              date: new Date(reviewDate).toISOString().split('T')[0],
-              artwork: albumCover || null,
-              genres: genreList,
-              tracklist: songsWithTitles,
-              tagline: tagline.trim() || '',
-              review: details.trim() || '',
-              score: stats.averageScore,
-              lovedPercent: stats.lovedPercent,
-              okPercent: stats.okPercent,
-              skipPercent: stats.skipPercent,
-              inProgress: finalIsInProgress
-            };
             setViewingAlbum(savedAlbum);
           } else {
             closeForm();
           }
         } catch (error) {
           console.error('Save failed:', error);
-          setImageError('Failed to save. Please try again.');
-          setTimeout(() => setImageError(''), 4000);
+          setImageError(`Failed to save: ${error.message || 'Unknown error'}`);
+          setTimeout(() => setImageError(''), 5000);
         }
       };
 
