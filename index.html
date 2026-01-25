@@ -47,10 +47,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#0a0a0a" id="theme-color-meta">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Album Review App v0.07</title>
+  <title>Album Review App v1.0 Beta</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23f59e0b'/%3E%3Cstop offset='100%25' style='stop-color:%23ec4899'/%3E%3C/linearGradient%3E%3CradialGradient id='shine'%3E%3Cstop offset='0%25' style='stop-color:%23ffffff;stop-opacity:0.3'/%3E%3Cstop offset='100%25' style='stop-color:%23ffffff;stop-opacity:0'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='50' cy='50' r='48' fill='%23000000'/%3E%3Ccircle cx='50' cy='50' r='42' fill='%23000000' stroke='%23333333' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='36' fill='%23000000' stroke='%23333333' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='30' fill='%23000000' stroke='%23333333' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='24' fill='%23000000' stroke='%23333333' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='18' fill='url(%23g)'/%3E%3Ccircle cx='50' cy='50' r='18' fill='url(%23shine)'/%3E%3Ccircle cx='50' cy='50' r='6' fill='none'/%3E%3C/svg%3E">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
@@ -578,7 +579,187 @@
     const ArrowUp = ({ size = 24, className = '' }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>;
     const ExternalLink = ({ size = 24, className = '' }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>;
 
-    // Local storage wrapper with quota error handling
+    // ========================================
+    // SUPABASE INITIALIZATION
+    // ========================================
+    const SUPABASE_URL = 'https://geerlfxcebrzhrsmxqmi.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdlZXJsZnhjZWJyemhyc214cW1pIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkzNTE4NzUsImV4cCI6MjA4NDkyNzg3NX0.G71xj1W1v9Yn-AJYzHGlWZg1JMBn5aL6gc2eXvM12tk';
+    
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // ========================================
+    // SUPABASE HELPER FUNCTIONS
+    // ========================================
+    
+    // Authentication helpers
+    const supabaseAuth = {
+      async signUp(email, password, username) {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { username }
+          }
+        });
+        if (error) throw error;
+        return data;
+      },
+      
+      async signIn(email, password) {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password
+        });
+        if (error) throw error;
+        return data;
+      },
+      
+      async signOut() {
+        const { error } = await supabase.auth.signOut();
+        if (error) throw error;
+      },
+      
+      async getSession() {
+        const { data: { session } } = await supabase.auth.getSession();
+        return session;
+      },
+      
+      async getUser() {
+        const { data: { user } } = await supabase.auth.getUser();
+        return user;
+      },
+      
+      onAuthStateChange(callback) {
+        return supabase.auth.onAuthStateChange(callback);
+      }
+    };
+    
+    // Database helpers
+    const supabaseDB = {
+      // Profile operations
+      async getProfile(userId) {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', userId)
+          .single();
+        if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows
+        return data;
+      },
+      
+      async upsertProfile(userId, profileData) {
+        const { data, error } = await supabase
+          .from('profiles')
+          .upsert({
+            id: userId,
+            ...profileData,
+            updated_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        return data;
+      },
+      
+      // Albums operations
+      async getAlbums(userId) {
+        const { data, error } = await supabase
+          .from('albums')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false });
+        if (error) throw error;
+        return data || [];
+      },
+      
+      async getAlbum(albumId) {
+        const { data, error} = await supabase
+          .from('albums')
+          .select('*')
+          .eq('id', albumId)
+          .single();
+        if (error) throw error;
+        return data;
+      },
+      
+      async createAlbum(userId, albumData) {
+        const { data, error } = await supabase
+          .from('albums')
+          .insert({
+            user_id: userId,
+            ...albumData,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        return data;
+      },
+      
+      async updateAlbum(albumId, albumData) {
+        const { data, error } = await supabase
+          .from('albums')
+          .update({
+            ...albumData,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', albumId)
+          .select()
+          .single();
+        if (error) throw error;
+        return data;
+      },
+      
+      async deleteAlbum(albumId) {
+        const { error } = await supabase
+          .from('albums')
+          .delete()
+          .eq('id', albumId);
+        if (error) throw error;
+      }
+    };
+    
+    // Storage helpers
+    const supabaseStorage = {
+      async uploadProfilePic(userId, file) {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${userId}/profile.${fileExt}`;
+        const { data, error } = await supabase.storage
+          .from('profile-pictures')
+          .upload(fileName, file, { upsert: true });
+        if (error) throw error;
+        
+        const { data: { publicUrl } } = supabase.storage
+          .from('profile-pictures')
+          .getPublicUrl(fileName);
+        return publicUrl;
+      },
+      
+      async uploadAlbumCover(userId, albumId, file) {
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${userId}/${albumId}.${fileExt}`;
+        const { data, error } = await supabase.storage
+          .from('album-covers')
+          .upload(fileName, file, { upsert: true });
+        if (error) throw error;
+        
+        const { data: { publicUrl } } = supabase.storage
+          .from('album-covers')
+          .getPublicUrl(fileName);
+        return publicUrl;
+      },
+      
+      async deleteFile(bucket, path) {
+        const { error } = await supabase.storage
+          .from(bucket)
+          .remove([path]);
+        if (error) throw error;
+      }
+    };
+
+    // DEPRECATED: localStorage wrapper - keeping for backwards compatibility during migration
+    // This will be removed in future versions
     const storage = {
       async get(key) {
         try {
@@ -938,6 +1119,11 @@
       const [authPassword, setAuthPassword] = useState('');
       const [authError, setAuthError] = useState('');
       
+      // Supabase session state
+      const [session, setSession] = useState(null);
+      const [user, setUser] = useState(null);
+      const [authEmail, setAuthEmail] = useState('');
+      
       // Core state
       const [albums, setAlbums] = useState([]);
       const [isLoading, setIsLoading] = useState(true);
@@ -1088,11 +1274,36 @@
         hoverBg: darkMode ? 'hover:bg-neutral-800' : 'hover:bg-neutral-100',
       }), [darkMode]);
 
-      // Load data and check authentication
+      // Load data and check authentication with Supabase
       useEffect(() => {
-        checkAuth();
+        checkSupabaseAuth();
         // Ensure page starts at top (fixes FAB cutoff on mobile)
         window.scrollTo(0, 0);
+        
+        // Listen for auth state changes
+        const { data: { subscription } } = supabaseAuth.onAuthStateChange(async (event, session) => {
+          console.log('Auth state changed:', event);
+          setSession(session);
+          
+          if (session) {
+            setUser(session.user);
+            setIsAuthenticated(true);
+            setCurrentUser(session.user.email);
+            await loadSupabaseData(session.user.id);
+            setShowAuthModal(false);
+          } else {
+            setUser(null);
+            setIsAuthenticated(false);
+            setCurrentUser('');
+            setAlbums([]);
+            setIsLoading(false);
+            setShowAuthModal(true);
+          }
+        });
+        
+        return () => {
+          subscription.unsubscribe();
+        };
       }, []);
       
       // Handle auth modal background - sets body background to cover safe areas
@@ -1105,18 +1316,23 @@
         return () => { document.body.style.background = ''; };
       }, [showAuthModal]);
 
-      const checkAuth = () => {
-        const savedUser = localStorage.getItem('auth:username');
-        const savedStaySignedIn = localStorage.getItem('auth:staySignedIn') === 'true';
-        
-        if (savedUser && savedStaySignedIn) {
-          setCurrentUser(savedUser);
-          setIsAuthenticated(true);
-          setStaySignedIn(true);
-          loadAllData(savedUser);
-          // Scroll to top after auto-login so FAB is visible
-          setTimeout(() => window.scrollTo(0, 0), 100);
-        } else {
+      const checkSupabaseAuth = async () => {
+        try {
+          const session = await supabaseAuth.getSession();
+          
+          if (session) {
+            setSession(session);
+            setUser(session.user);
+            setCurrentUser(session.user.email);
+            setIsAuthenticated(true);
+            await loadSupabaseData(session.user.id);
+            setTimeout(() => window.scrollTo(0, 0), 100);
+          } else {
+            setIsLoading(false);
+            setShowAuthModal(true);
+          }
+        } catch (error) {
+          console.error('Auth check error:', error);
           setIsLoading(false);
           setShowAuthModal(true);
         }
@@ -1200,7 +1416,7 @@
         };
       }, []);
 
-      const loadAllData = async (username) => {
+      const loadSupabaseData = async (userId) => {
         try {
           // Reset all data first
           setAlbums([]);
@@ -1217,249 +1433,267 @@
           setShowSeparators(true);
           setSortBy('score');
           
-          const userPrefix = `${username}:album:`;
-          const keys = await window.storage.list(userPrefix);
-          if (keys?.keys?.length) {
-            const loadedAlbums = await Promise.all(
-              keys.keys.map(async (key) => {
-                try {
-                  const result = await window.storage.get(key);
-                  return result ? JSON.parse(result.value) : null;
-                } catch { return null; }
-              })
-            );
-            setAlbums(loadedAlbums.filter(Boolean));
+          // Load profile from Supabase
+          const profile = await supabaseDB.getProfile(userId);
+          if (profile) {
+            setUserName(profile.name || '');
+            setUserAge(profile.age || '');
+            setUserLocation(profile.location || '');
+            setUserBio(profile.bio || '');
+            setUserProfilePic(profile.profile_pic || '');
+            setFavouriteAlbumId(profile.favourite_album_id || '');
+            setSpotlightAlbumId(profile.spotlight_album_id || '');
+            if (profile.accent_color && colorThemes[profile.accent_color]) {
+              setAccentColor(profile.accent_color);
+            }
+            if (profile.profile_banner && bannerStyles[profile.profile_banner]) {
+              setProfileBanner(profile.profile_banner);
+            }
+            setShowTaglines(profile.show_taglines !== false);
+            setShowSeparators(profile.show_separators !== false);
+            setShowInProgress(profile.show_in_progress !== false);
+            setSortBy(profile.sort_by || 'score');
           }
           
-          const profileFields = ['name', 'age', 'location', 'bio', 'profilePic', 'favouriteAlbum', 'spotlightAlbum', 'accentColor', 'profileBanner', 'showTaglines', 'showSeparators', 'showInProgress', 'sortBy'];
-          for (const field of profileFields) {
-            try {
-              const result = await window.storage.get(`${username}:user:${field}`);
-              if (result) {
-                if (field === 'name') setUserName(result.value);
-                if (field === 'age') setUserAge(result.value);
-                if (field === 'location') setUserLocation(result.value);
-                if (field === 'bio') setUserBio(result.value);
-                if (field === 'profilePic') setUserProfilePic(result.value);
-                if (field === 'favouriteAlbum') setFavouriteAlbumId(result.value);
-                if (field === 'spotlightAlbum') setSpotlightAlbumId(result.value);
-                if (field === 'accentColor' && colorThemes[result.value]) setAccentColor(result.value);
-                if (field === 'profileBanner' && bannerStyles[result.value]) setProfileBanner(result.value);
-                if (field === 'showTaglines') setShowTaglines(result.value === 'true');
-                if (field === 'showSeparators') setShowSeparators(result.value !== 'false');
-                if (field === 'showInProgress') setShowInProgress(result.value !== 'false');
-                if (field === 'sortBy') setSortBy(result.value || 'score');
-              }
-            } catch {}
+          // Load albums from Supabase
+          const albumsData = await supabaseDB.getAlbums(userId);
+          if (albumsData && albumsData.length > 0) {
+            // Convert Supabase format to app format
+            const formattedAlbums = albumsData.map(album => ({
+              id: album.album_id,
+              artist: album.artist_name,
+              album: album.album_name,
+              year: album.release_year,
+              date: album.review_date,
+              artwork: album.artwork_url,
+              genres: album.genres || [],
+              tracklist: album.tracklist || [],
+              tagline: album.tagline || '',
+              review: album.review_text || '',
+              score: album.score,
+              lovedPercent: album.loved_percent || 0,
+              okPercent: album.ok_percent || 0,
+              skipPercent: album.skip_percent || 0,
+              inProgress: album.in_progress || false,
+              dbId: album.id // Keep Supabase ID for updates
+            }));
+            setAlbums(formattedAlbums);
           }
-        } catch {}
+        } catch (error) {
+          console.error('Error loading data from Supabase:', error);
+        }
+        setIsLoading(false);
+      };
+
+      // Keep old localStorage function for backwards compatibility during migration
+      const loadAllData = async (username) => {
+        // This is deprecated - redirects to localStorage warning
+        console.warn('loadAllData is deprecated. Please migrate to Supabase.');
         setIsLoading(false);
       };
 
       const saveProfile = useCallback(async (field, value) => {
-        if (!currentUser) return;
-        try { 
-          await window.storage.set(`${currentUser}:user:${field}`, value);
+        if (!user) return;
+        try {
+          // Map field names to Supabase column names
+          const fieldMap = {
+            'name': 'name',
+            'age': 'age',
+            'location': 'location',
+            'bio': 'bio',
+            'profilePic': 'profile_pic',
+            'favouriteAlbum': 'favourite_album_id',
+            'spotlightAlbum': 'spotlight_album_id',
+            'accentColor': 'accent_color',
+            'profileBanner': 'profile_banner',
+            'showTaglines': 'show_taglines',
+            'showSeparators': 'show_separators',
+            'showInProgress': 'show_in_progress',
+            'sortBy': 'sort_by'
+          };
+          
+          const dbField = fieldMap[field] || field;
+          await supabaseDB.upsertProfile(user.id, { [dbField]: value });
           setProfileSaved(true);
           setTimeout(() => setProfileSaved(false), 1500);
-        } catch {}
-      }, [currentUser]);
+        } catch (error) {
+          console.error('Error saving profile:', error);
+        }
+      }, [user]);
 
       // Authentication functions
-      const handleLogin = () => {
-        let storedPass = localStorage.getItem(`auth:${authUsername}:password`);
-        
-        // Migration: Check for old auth format
-        if (!storedPass) {
-          const oldUsername = localStorage.getItem('auth:username');
-          const oldPassword = localStorage.getItem('auth:password');
-          
-          if (oldUsername === authUsername && oldPassword) {
-            // Migrate old account to new format
-            localStorage.setItem(`auth:${authUsername}:password`, oldPassword);
-            localStorage.removeItem('auth:password');
-            storedPass = oldPassword;
-            
-            // Migrate old data to new namespaced format
-            migrateOldData(authUsername);
-          }
-        }
-        
-        if (!storedPass) {
-          setAuthError('Account not found. Please create an account first.');
-          return;
-        }
-        
-        if (authPassword === storedPass) {
-          setCurrentUser(authUsername);
-          setIsAuthenticated(true);
-          localStorage.setItem('auth:username', authUsername); // Store last logged in user
-          if (staySignedIn) {
-            localStorage.setItem('auth:staySignedIn', 'true');
-          } else {
-            localStorage.removeItem('auth:staySignedIn');
-          }
-          setShowAuthModal(false);
+      const handleLogin = async () => {
+        try {
           setAuthError('');
+          const { user } = await supabaseAuth.signIn(authEmail, authPassword);
+          
+          // Auth state change will handle the rest via listener
           setAuthUsername('');
+          setAuthEmail('');
           setAuthPassword('');
-          loadAllData(authUsername);
-          // Scroll to top after login so FAB is visible
           setTimeout(() => window.scrollTo(0, 0), 100);
-        } else {
-          setAuthError('Invalid password');
-        }
-      };
-
-      const migrateOldData = (username) => {
-        // Migrate albums
-        const oldAlbumKeys = Object.keys(localStorage).filter(key => key.startsWith('album:'));
-        oldAlbumKeys.forEach(key => {
-          const albumData = localStorage.getItem(key);
-          const albumId = key.replace('album:', '');
-          localStorage.setItem(`${username}:album:${albumId}`, albumData);
-          localStorage.removeItem(key);
-        });
-        
-        // Migrate profile data
-        const profileFields = ['name', 'age', 'location', 'bio', 'profilePic', 'favouriteAlbum', 'spotlightAlbum', 'accentColor', 'profileBanner', 'showTaglines', 'showSeparators', 'showInProgress', 'sortBy'];
-        profileFields.forEach(field => {
-          const value = localStorage.getItem(`user:${field}`);
-          if (value) {
-            localStorage.setItem(`${username}:user:${field}`, value);
-            localStorage.removeItem(`user:${field}`);
+        } catch (error) {
+          console.error('Login error:', error);
+          if (error.message.includes('Invalid login credentials')) {
+            setAuthError('Invalid email or password');
+          } else if (error.message.includes('Email not confirmed')) {
+            setAuthError('Please check your email to confirm your account');
+          } else {
+            setAuthError(error.message || 'Login failed. Please try again.');
           }
-        });
+        }
       };
 
-      const handleCreateAccount = () => {
-        if (!authUsername.trim() || !authPassword.trim()) {
-          setAuthError('Username and password are required');
-          return;
-        }
-        
-        if (authUsername.length < 3) {
-          setAuthError('Username must be at least 3 characters');
-          return;
-        }
-        
-        if (authPassword.length < 4) {
-          setAuthError('Password must be at least 4 characters');
-          return;
-        }
-        
-        // Check if username already exists
-        const existingPass = localStorage.getItem(`auth:${authUsername}:password`);
-        if (existingPass) {
-          setAuthError('Username already exists. Please choose a different username.');
-          return;
-        }
-        
-        localStorage.setItem(`auth:${authUsername}:password`, authPassword);
-        localStorage.setItem('auth:username', authUsername); // Store last logged in user
-        setCurrentUser(authUsername);
-        setIsAuthenticated(true);
-        if (staySignedIn) {
-          localStorage.setItem('auth:staySignedIn', 'true');
-        }
-        setShowAuthModal(false);
-        setAuthError('');
-        setAuthUsername('');
-        setAuthPassword('');
-        loadAllData(authUsername);
-        // Scroll to top after login so FAB is visible
-        setTimeout(() => window.scrollTo(0, 0), 100);
-        
-        // Show welcome modal for new users
-        setShowWelcomeModal(true);
+      // Migration helper - no longer needed with Supabase
+      const migrateOldData = (username) => {
+        console.warn('Data migration not available with Supabase');
       };
 
-      const handleChangePassword = () => {
-        const storedPass = localStorage.getItem(`auth:${authUsername}:password`);
-        
-        if (!storedPass) {
-          setAuthError('Account not found');
-          return;
+      const handleCreateAccount = async () => {
+        try {
+          setAuthError('');
+          
+          if (!authEmail.trim() || !authPassword.trim() || !authUsername.trim()) {
+            setAuthError('Email, username, and password are required');
+            return;
+          }
+          
+          // Validate email format
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(authEmail)) {
+            setAuthError('Please enter a valid email address');
+            return;
+          }
+          
+          if (authUsername.length < 3) {
+            setAuthError('Username must be at least 3 characters');
+            return;
+          }
+          
+          if (authPassword.length < 6) {
+            setAuthError('Password must be at least 6 characters');
+            return;
+          }
+          
+          const { user } = await supabaseAuth.signUp(authEmail, authPassword, authUsername);
+          
+          // Success - user will be auto-logged in via auth state listener
+          setAuthUsername('');
+          setAuthEmail('');
+          setAuthPassword('');
+          setTimeout(() => window.scrollTo(0, 0), 100);
+          
+          // Show welcome modal for new users
+          setShowWelcomeModal(true);
+        } catch (error) {
+          console.error('Signup error:', error);
+          if (error.message.includes('already registered')) {
+            setAuthError('This email is already registered. Please sign in instead.');
+          } else if (error.message.includes('Password')) {
+            setAuthError('Password must be at least 6 characters');
+          } else {
+            setAuthError(error.message || 'Account creation failed. Please try again.');
+          }
         }
-        
-        if (authPassword !== storedPass) {
-          setAuthError('Current password is incorrect');
-          return;
-        }
-        
-        const newPassword = prompt('Enter new password (min 4 characters):');
-        if (!newPassword) return;
-        
-        if (newPassword.length < 4) {
-          setAuthError('Password must be at least 4 characters');
-          return;
-        }
-        
-        localStorage.setItem(`auth:${authUsername}:password`, newPassword);
-        setAuthError('');
-        setAuthUsername('');
-        setAuthPassword('');
-        alert('Password changed successfully!');
-        setAuthMode('login');
       };
 
-      const handleLogout = () => {
-        setIsAuthenticated(false);
-        setCurrentUser('');
-        setStaySignedIn(false);
-        localStorage.removeItem('auth:staySignedIn');
-        setAuthMode('login'); // Reset to login mode
-        setShowAuthModal(true);
-        setView('albums');
-        
-        // Clear all albums and user data
-        setAlbums([]);
-        setUserName('');
-        setUserAge('');
-        setUserLocation('');
-        setUserBio('');
-        setUserProfilePic('');
-        setFavouriteAlbumId('');
-        setSpotlightAlbumId('');
-        setAccentColor('coral');
-        setProfileBanner('gradient-1');
-        setShowTaglines(true);
-        setShowSeparators(true);
-        setSortBy('score');
+      const handleChangePassword = async () => {
+        try {
+          setAuthError('');
+          
+          // First try to login to verify current password
+          await supabaseAuth.signIn(authEmail, authPassword);
+          
+          const newPassword = prompt('Enter new password (min 6 characters):');
+          if (!newPassword) return;
+          
+          if (newPassword.length < 6) {
+            setAuthError('Password must be at least 6 characters');
+            return;
+          }
+          
+          // Update password in Supabase
+          const { error } = await supabase.auth.updateUser({
+            password: newPassword
+          });
+          
+          if (error) throw error;
+          
+          setAuthError('');
+          setAuthEmail('');
+          setAuthPassword('');
+          alert('Password changed successfully!');
+          setAuthMode('login');
+        } catch (error) {
+          console.error('Password change error:', error);
+          if (error.message.includes('Invalid login credentials')) {
+            setAuthError('Current password is incorrect');
+          } else {
+            setAuthError(error.message || 'Failed to change password');
+          }
+        }
+      };
+
+      const handleLogout = async () => {
+        try {
+          await supabaseAuth.signOut();
+          
+          // Clear local state (auth state listener will handle the rest)
+          setIsAuthenticated(false);
+          setCurrentUser('');
+          setStaySignedIn(false);
+          setAuthMode('login');
+          setShowAuthModal(true);
+          setView('albums');
+          
+          // Clear all albums and user data
+          setAlbums([]);
+          setUserName('');
+          setUserAge('');
+          setUserLocation('');
+          setUserBio('');
+          setUserProfilePic('');
+          setFavouriteAlbumId('');
+          setSpotlightAlbumId('');
+          setAccentColor('coral');
+          setProfileBanner('gradient-1');
+          setShowTaglines(true);
+          setShowSeparators(true);
+          setSortBy('score');
+        } catch (error) {
+          console.error('Logout error:', error);
+        }
       };
 
       const handleDeleteAccount = async () => {
-        const storedPass = localStorage.getItem(`auth:${currentUser}:password`);
-        
-        if (deleteAccountPassword !== storedPass) {
-          setDeleteAccountError('Incorrect password');
-          return;
-        }
-        
-        // Delete all user data
         try {
-          // Delete all albums
-          const keys = await window.storage.list(`${currentUser}:album:`);
-          if (keys?.keys?.length) {
-            await Promise.all(keys.keys.map(key => window.storage.delete(key)));
+          // Verify password by attempting to sign in
+          await supabaseAuth.signIn(user.email, deleteAccountPassword);
+          
+          // Delete all user's albums from database
+          const albums = await supabaseDB.getAlbums(user.id);
+          if (albums && albums.length > 0) {
+            await Promise.all(albums.map(album => supabaseDB.deleteAlbum(album.id)));
           }
           
-          // Delete all profile data
-          const profileFields = ['name', 'age', 'location', 'bio', 'profilePic', 'favouriteAlbum', 'spotlightAlbum', 'accentColor', 'profileBanner', 'showTaglines', 'showSeparators', 'showInProgress', 'sortBy'];
-          await Promise.all(profileFields.map(field => window.storage.delete(`${currentUser}:user:${field}`)));
+          // Note: Supabase doesn't support user deletion from client
+          // You'll need to set up a Edge Function or do this via Supabase dashboard
+          // For now, we'll just log them out and clear their data
           
-          // Delete auth credentials
-          localStorage.removeItem(`auth:${currentUser}:password`);
-          localStorage.removeItem('auth:username');
-          localStorage.removeItem('auth:staySignedIn');
-          
-          // Log out
           setShowDeleteAccount(false);
           setDeleteAccountPassword('');
           setDeleteAccountError('');
-          handleLogout();
+          
+          alert('Your data has been deleted. Please contact support to fully delete your account.');
+          
+          await handleLogout();
         } catch (error) {
-          setDeleteAccountError('Failed to delete account');
+          console.error('Delete account error:', error);
+          if (error.message.includes('Invalid login credentials')) {
+            setDeleteAccountError('Incorrect password');
+          } else {
+            setDeleteAccountError('Failed to delete account');
+          }
         }
       };
 
@@ -1471,7 +1705,7 @@
 
       const handleProfilePicUpload = async (e) => {
         const file = e.target.files?.[0];
-        if (file) {
+        if (file && user) {
           try {
             setImageError('');
             
@@ -1479,11 +1713,9 @@
             let processedFile = file;
             if (file.type === 'image/heic' || file.type === 'image/heif' || file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif')) {
               try {
-                // Create a blob URL for the HEIC file
                 const blob = new Blob([file], { type: 'image/heic' });
                 const url = URL.createObjectURL(blob);
                 
-                // Convert to canvas then to JPEG blob
                 const img = new Image();
                 await new Promise((resolve, reject) => {
                   img.onload = resolve;
@@ -1505,11 +1737,13 @@
               }
             }
             
-            const compressed = await compressImageSquare(processedFile, 50);
-            setUserProfilePic(compressed);
-            saveProfile('profilePic', compressed);
+            // Upload to Supabase Storage
+            const publicUrl = await supabaseStorage.uploadProfilePic(user.id, processedFile);
+            setUserProfilePic(publicUrl);
+            await saveProfile('profilePic', publicUrl);
           } catch (err) {
-            setImageError(err.message);
+            console.error('Profile pic upload error:', err);
+            setImageError(err.message || 'Failed to upload profile picture');
             setTimeout(() => setImageError(''), 5000);
           }
         }
@@ -2601,6 +2835,11 @@
         const songsWithTitles = songs.filter(s => s.title.trim());
         if (!albumName.trim() || !artistName.trim() || !releaseYear) return;
         
+        if (!user) {
+          console.error('No user logged in');
+          return;
+        }
+        
         // Automatic In Progress state management:
         // If user manually set In Progress state, respect it. Otherwise, auto-determine based on ratings.
         let finalIsInProgress;
@@ -2615,60 +2854,101 @@
         const stats = calculateScore(songsWithTitles);
         const favouriteSong = songsWithTitles.find(s => s.isFavourite && !s.excluded);
         const genreList = genres.split(',').map(g => g.trim()).filter(g => g.length > 0);
-        const album = {
-          id: editingAlbum || Date.now().toString(),
-          albumName: albumName.trim(),
-          artistName: artistName.trim(),
-          albumCover: albumCover || null,
+        
+        const albumId = editingAlbum || Date.now().toString();
+        
+        // Prepare album data for Supabase
+        const albumData = {
+          album_id: albumId,
+          artist_name: artistName.trim(),
+          album_name: albumName.trim(),
+          release_year: releaseYear,
+          review_date: new Date(reviewDate).toISOString().split('T')[0], // YYYY-MM-DD format
+          artwork_url: albumCover || null,
+          genres: genreList.length > 0 ? genreList : [],
+          tracklist: songsWithTitles.map(s => ({ ...s })),
           tagline: tagline.trim() || null,
-          details: details.trim() || null,
-          genres: genreList.length > 0 ? genreList : null,
-          favouriteSong: favouriteSong?.title || null,
-          songs: songsWithTitles.map(s => ({ ...s })),
-          dateAdded: new Date(reviewDate).toISOString(),
-          releaseYear: parseInt(releaseYear),
-          isInProgress: finalIsInProgress,
-          ...stats
+          review_text: details.trim() || null,
+          score: stats.averageScore,
+          loved_percent: stats.lovedPercent,
+          ok_percent: stats.okPercent,
+          skip_percent: stats.skipPercent,
+          in_progress: finalIsInProgress
         };
+        
         try {
-          await window.storage.set(`${currentUser}:album:${album.id}`, JSON.stringify(album));
-          await loadAllData(currentUser);
+          // Check if this is an update or new album
+          const existingAlbum = albums.find(a => a.id === albumId);
+          
+          if (existingAlbum && existingAlbum.dbId) {
+            // Update existing album
+            await supabaseDB.updateAlbum(existingAlbum.dbId, albumData);
+          } else {
+            // Create new album
+            await supabaseDB.createAlbum(user.id, albumData);
+          }
+          
+          // Reload data from Supabase
+          await loadSupabaseData(user.id);
           setUserSetInProgress(false); // Reset flag after save
           setHasUnsavedChanges(false);
+          
           if (editingInModal || isAdding) {
             // Keep modal open and show the album review
             setIsAdding(false);
             setEditingInModal(false);
-            setViewingAlbum(album);
+            // Find the saved album to view it
+            const savedAlbum = albums.find(a => a.id === albumId) || {
+              id: albumId,
+              artist: artistName.trim(),
+              album: albumName.trim(),
+              year: releaseYear,
+              date: new Date(reviewDate).toISOString().split('T')[0],
+              artwork: albumCover || null,
+              genres: genreList,
+              tracklist: songsWithTitles,
+              tagline: tagline.trim() || '',
+              review: details.trim() || '',
+              score: stats.averageScore,
+              lovedPercent: stats.lovedPercent,
+              okPercent: stats.okPercent,
+              skipPercent: stats.skipPercent,
+              inProgress: finalIsInProgress
+            };
+            setViewingAlbum(savedAlbum);
           } else {
             closeForm();
           }
         } catch (error) {
           console.error('Save failed:', error);
-          if (error.message === 'QUOTA_EXCEEDED') {
-            setImageError('Storage full! Remove the album cover or delete old albums to free space.');
-            setTimeout(() => setImageError(''), 6000);
-          } else {
-            setImageError('Failed to save. Please try again.');
-            setTimeout(() => setImageError(''), 4000);
-          }
+          setImageError('Failed to save. Please try again.');
+          setTimeout(() => setImageError(''), 4000);
         }
       };
 
       const deleteAlbum = async () => {
-        if (deleteConfirm) {
+        if (deleteConfirm && user) {
           try {
-            await window.storage.delete(`${currentUser}:album:${deleteConfirm}`);
+            // Find the album to get its database ID
+            const album = albums.find(a => a.id === deleteConfirm);
+            if (album && album.dbId) {
+              await supabaseDB.deleteAlbum(album.dbId);
+            }
+            
+            // Update local state
             setAlbums(prev => prev.filter(a => a.id !== deleteConfirm));
+            
             if (favouriteAlbumId === deleteConfirm) {
               setFavouriteAlbumId('');
-              saveProfile('favouriteAlbum', '');
+              await saveProfile('favouriteAlbum', '');
             }
             if (spotlightAlbumId === deleteConfirm) {
               setSpotlightAlbumId('');
-              saveProfile('spotlightAlbum', '');
+              await saveProfile('spotlightAlbum', '');
             }
-          } catch {}
+          } catch (error) {
+            console.error('Delete album error:', error);
+          }
           setDeleteConfirm(null);
         }
       };
@@ -3383,15 +3663,29 @@
                 )}
                 
                 <div className="space-y-4 mb-6">
+                  {authMode === 'create' && (
+                    <div>
+                      <label className={`block text-xs font-semibold mb-2 ${theme.textSoft} uppercase tracking-wide`}>Username</label>
+                      <input
+                        type="text"
+                        value={authUsername}
+                        onChange={(e) => setAuthUsername(e.target.value)}
+                        className={`w-full px-4 py-3 ${theme.inputBg} border rounded-xl ${theme.text} focus:ring-2 focus:ring-${accent.from} transition-all`}
+                        placeholder="Choose a username"
+                        autoFocus
+                      />
+                    </div>
+                  )}
+                  
                   <div>
-                    <label className={`block text-xs font-semibold mb-2 ${theme.textSoft} uppercase tracking-wide`}>Username</label>
+                    <label className={`block text-xs font-semibold mb-2 ${theme.textSoft} uppercase tracking-wide`}>Email</label>
                     <input
-                      type="text"
-                      value={authUsername}
-                      onChange={(e) => setAuthUsername(e.target.value)}
+                      type="email"
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
                       className={`w-full px-4 py-3 ${theme.inputBg} border rounded-xl ${theme.text} focus:ring-2 focus:ring-${accent.from} transition-all`}
-                      placeholder="Enter username"
-                      autoFocus
+                      placeholder="Enter email address"
+                      autoFocus={authMode !== 'create'}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           if (authMode === 'login') handleLogin();
@@ -3401,6 +3695,7 @@
                       }}
                     />
                   </div>
+                  
                   <div>
                     <label className={`block text-xs font-semibold mb-2 ${theme.textSoft} uppercase tracking-wide`}>Password</label>
                     <input
@@ -3408,7 +3703,7 @@
                       value={authPassword}
                       onChange={(e) => setAuthPassword(e.target.value)}
                       className={`w-full px-4 py-3 ${theme.inputBg} border rounded-xl ${theme.text} focus:ring-2 focus:ring-${accent.from} transition-all`}
-                      placeholder="Enter password"
+                      placeholder={authMode === 'create' ? 'Create password (min 6 characters)' : 'Enter password'}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           if (authMode === 'login') handleLogin();
@@ -5048,7 +5343,7 @@
                 </div>
                 
                 {/* Version */}
-                <div className={`text-[10px] ${theme.textMuted} text-center mt-2`}>Album Archive v0.07</div>
+                <div className={`text-[10px] ${theme.textMuted} text-center mt-2`}>Album Archive v1.0 Beta</div>
               </div>
             </div>
           )}
