@@ -1318,9 +1318,13 @@
 
       const checkSupabaseAuth = async () => {
         try {
+          console.log('Checking Supabase auth...');
           const session = await supabaseAuth.getSession();
+          console.log('Session retrieved:', session ? 'Found' : 'Not found');
           
           if (session) {
+            console.log('User ID:', session.user?.id);
+            console.log('User email:', session.user?.email);
             setSession(session);
             setUser(session.user);
             setCurrentUser(session.user.email);
@@ -1328,6 +1332,7 @@
             await loadSupabaseData(session.user.id);
             setTimeout(() => window.scrollTo(0, 0), 100);
           } else {
+            console.log('No active session found');
             setIsLoading(false);
             setShowAuthModal(true);
           }
@@ -1493,7 +1498,24 @@
       };
 
       const saveProfile = useCallback(async (field, value) => {
-        if (!user) return;
+        // Get current user
+        let currentUser = user;
+        if (!currentUser) {
+          try {
+            const currentSession = await supabaseAuth.getSession();
+            if (currentSession && currentSession.user) {
+              currentUser = currentSession.user;
+            }
+          } catch (err) {
+            console.error('Failed to get session for saveProfile:', err);
+          }
+        }
+        
+        if (!currentUser) {
+          console.error('No user for saveProfile');
+          return;
+        }
+        
         try {
           // Map field names to Supabase column names
           const fieldMap = {
@@ -1513,7 +1535,7 @@
           };
           
           const dbField = fieldMap[field] || field;
-          await supabaseDB.upsertProfile(user.id, { [dbField]: value });
+          await supabaseDB.upsertProfile(currentUser.id, { [dbField]: value });
           setProfileSaved(true);
           setTimeout(() => setProfileSaved(false), 1500);
         } catch (error) {
@@ -1705,47 +1727,68 @@
 
       const handleProfilePicUpload = async (e) => {
         const file = e.target.files?.[0];
-        if (file && user) {
+        if (!file) return;
+        
+        // Get current user
+        let currentUser = user;
+        if (!currentUser) {
           try {
-            setImageError('');
-            
-            // Convert HEIC to JPEG if needed
-            let processedFile = file;
-            if (file.type === 'image/heic' || file.type === 'image/heif' || file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif')) {
-              try {
-                const blob = new Blob([file], { type: 'image/heic' });
-                const url = URL.createObjectURL(blob);
-                
-                const img = new Image();
-                await new Promise((resolve, reject) => {
-                  img.onload = resolve;
-                  img.onerror = () => reject(new Error('HEIC format not supported by your browser. Please convert to JPG/PNG first.'));
-                  img.src = url;
-                });
-                
-                const canvas = document.createElement('canvas');
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0);
-                
-                const jpegBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.95));
-                processedFile = new File([jpegBlob], file.name.replace(/\.heic$/i, '.jpg'), { type: 'image/jpeg' });
-                URL.revokeObjectURL(url);
-              } catch (heicError) {
-                throw new Error('HEIC format not supported. Please use JPG or PNG instead.');
-              }
+            const currentSession = await supabaseAuth.getSession();
+            if (currentSession && currentSession.user) {
+              currentUser = currentSession.user;
+              setSession(currentSession);
+              setUser(currentUser);
             }
-            
-            // Upload to Supabase Storage
-            const publicUrl = await supabaseStorage.uploadProfilePic(user.id, processedFile);
-            setUserProfilePic(publicUrl);
-            await saveProfile('profilePic', publicUrl);
           } catch (err) {
-            console.error('Profile pic upload error:', err);
-            setImageError(err.message || 'Failed to upload profile picture');
-            setTimeout(() => setImageError(''), 5000);
+            console.error('Failed to get session for profile pic upload:', err);
           }
+        }
+        
+        if (!currentUser) {
+          setImageError('You must be logged in to upload a profile picture');
+          setTimeout(() => setImageError(''), 3000);
+          return;
+        }
+        
+        try {
+          setImageError('');
+          
+          // Convert HEIC to JPEG if needed
+          let processedFile = file;
+          if (file.type === 'image/heic' || file.type === 'image/heif' || file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif')) {
+            try {
+              const blob = new Blob([file], { type: 'image/heic' });
+              const url = URL.createObjectURL(blob);
+              
+              const img = new Image();
+              await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = () => reject(new Error('HEIC format not supported by your browser. Please convert to JPG/PNG first.'));
+                img.src = url;
+              });
+              
+              const canvas = document.createElement('canvas');
+              canvas.width = img.width;
+              canvas.height = img.height;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0);
+              
+              const jpegBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.95));
+              processedFile = new File([jpegBlob], file.name.replace(/\.heic$/i, '.jpg'), { type: 'image/jpeg' });
+              URL.revokeObjectURL(url);
+            } catch (heicError) {
+              throw new Error('HEIC format not supported. Please use JPG or PNG instead.');
+            }
+          }
+          
+          // Upload to Supabase Storage
+          const publicUrl = await supabaseStorage.uploadProfilePic(currentUser.id, processedFile);
+          setUserProfilePic(publicUrl);
+          await saveProfile('profilePic', publicUrl);
+        } catch (err) {
+          console.error('Profile pic upload error:', err);
+          setImageError(err.message || 'Failed to upload profile picture');
+          setTimeout(() => setImageError(''), 5000);
         }
       };
 
@@ -2841,12 +2884,34 @@
           return;
         }
         
-        if (!user) {
-          console.error('No user logged in');
-          setImageError('You must be logged in to save');
-          setTimeout(() => setImageError(''), 3000);
+        // Check authentication - try to get current session
+        let currentSession = session;
+        let currentUser = user;
+        
+        if (!currentSession || !currentUser) {
+          console.error('No session or user found, attempting to get fresh session...');
+          try {
+            currentSession = await supabaseAuth.getSession();
+            if (currentSession) {
+              currentUser = currentSession.user;
+              // Update state for future saves
+              setSession(currentSession);
+              setUser(currentUser);
+            }
+          } catch (err) {
+            console.error('Failed to get session:', err);
+          }
+        }
+        
+        if (!currentUser) {
+          console.error('No user logged in after session check');
+          setImageError('You must be logged in to save. Please refresh and log in again.');
+          setTimeout(() => setImageError(''), 5000);
           return;
         }
+        
+        console.log('Current user ID:', currentUser.id);
+        console.log('Current user email:', currentUser.email);
         
         // Show saving state
         setImageError('Saving...');
@@ -2900,14 +2965,14 @@
             savedData = await supabaseDB.updateAlbum(existingAlbum.dbId, albumData);
           } else {
             // Create new album
-            console.log('Creating new album for user:', user.id);
-            savedData = await supabaseDB.createAlbum(user.id, albumData);
+            console.log('Creating new album for user:', currentUser.id);
+            savedData = await supabaseDB.createAlbum(currentUser.id, albumData);
           }
           
           console.log('Save successful:', savedData);
           
           // Reload data from Supabase and wait for it
-          await loadSupabaseData(user.id);
+          await loadSupabaseData(currentUser.id);
           
           setUserSetInProgress(false); // Reset flag after save
           setHasUnsavedChanges(false);
@@ -2950,30 +3015,51 @@
       };
 
       const deleteAlbum = async () => {
-        if (deleteConfirm && user) {
+        if (!deleteConfirm) return;
+        
+        // Check authentication - try to get current session
+        let currentUser = user;
+        if (!currentUser) {
           try {
-            // Find the album to get its database ID
-            const album = albums.find(a => a.id === deleteConfirm);
-            if (album && album.dbId) {
-              await supabaseDB.deleteAlbum(album.dbId);
+            const currentSession = await supabaseAuth.getSession();
+            if (currentSession) {
+              currentUser = currentSession.user;
+              setSession(currentSession);
+              setUser(currentUser);
             }
-            
-            // Update local state
-            setAlbums(prev => prev.filter(a => a.id !== deleteConfirm));
-            
-            if (favouriteAlbumId === deleteConfirm) {
-              setFavouriteAlbumId('');
-              await saveProfile('favouriteAlbum', '');
-            }
-            if (spotlightAlbumId === deleteConfirm) {
-              setSpotlightAlbumId('');
-              await saveProfile('spotlightAlbum', '');
-            }
-          } catch (error) {
-            console.error('Delete album error:', error);
+          } catch (err) {
+            console.error('Failed to get session for delete:', err);
+            return;
           }
-          setDeleteConfirm(null);
         }
+        
+        if (!currentUser) {
+          console.error('No user logged in for delete');
+          return;
+        }
+        
+        try {
+          // Find the album to get its database ID
+          const album = albums.find(a => a.id === deleteConfirm);
+          if (album && album.dbId) {
+            await supabaseDB.deleteAlbum(album.dbId);
+          }
+          
+          // Update local state
+          setAlbums(prev => prev.filter(a => a.id !== deleteConfirm));
+          
+          if (favouriteAlbumId === deleteConfirm) {
+            setFavouriteAlbumId('');
+            await saveProfile('favouriteAlbum', '');
+          }
+          if (spotlightAlbumId === deleteConfirm) {
+            setSpotlightAlbumId('');
+            await saveProfile('spotlightAlbum', '');
+          }
+        } catch (error) {
+          console.error('Delete album error:', error);
+        }
+        setDeleteConfirm(null);
       };
 
       const clearAllStorage = async () => {
