@@ -47,7 +47,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#0a0a0a" id="theme-color-meta">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Album Review App v0.06</title>
+  <title>Album Review App v0.07</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23f59e0b'/%3E%3Cstop offset='100%25' style='stop-color:%23ec4899'/%3E%3C/linearGradient%3E%3CradialGradient id='shine'%3E%3Cstop offset='0%25' style='stop-color:%23ffffff;stop-opacity:0.3'/%3E%3Cstop offset='100%25' style='stop-color:%23ffffff;stop-opacity:0'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='50' cy='50' r='48' fill='%23000000'/%3E%3Ccircle cx='50' cy='50' r='42' fill='%23000000' stroke='%23333333' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='36' fill='%23000000' stroke='%23333333' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='30' fill='%23000000' stroke='%23333333' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='24' fill='%23000000' stroke='%23333333' stroke-width='0.5'/%3E%3Ccircle cx='50' cy='50' r='18' fill='url(%23g)'/%3E%3Ccircle cx='50' cy='50' r='18' fill='url(%23shine)'/%3E%3Ccircle cx='50' cy='50' r='6' fill='none'/%3E%3C/svg%3E">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
@@ -3570,7 +3570,7 @@
 
           {/* Unsaved Changes Warning */}
           {showUnsavedWarning && (
-            <div className={`fixed inset-0 bg-black/95 backdrop-blur-sm flex items-center justify-center z-[100] p-4 ${warningModalClosing ? 'animate-fadeOutFast' : 'animate-fadeIn'}`} onClick={() => setShowUnsavedWarning(false)}>
+            <div className={`fixed inset-0 bg-black/95 backdrop-blur-sm flex items-center justify-center z-[10002] p-4 ${warningModalClosing ? 'animate-fadeOutFast' : 'animate-fadeIn'}`} onClick={() => setShowUnsavedWarning(false)}>
               <div className={`${theme.cardBg} rounded-2xl p-6 max-w-sm w-full border ${theme.cardBorder} shadow-2xl ${warningModalClosing ? 'animate-scaleOutFast' : 'animate-scaleIn'}`} onClick={e => e.stopPropagation()}>
                 <div className="flex items-center gap-3 mb-4">
                   <div className="p-2 rounded-xl bg-amber-500/20">
@@ -3589,7 +3589,7 @@
 
           {/* Shuffle Random Album Modal */}
           {showShuffleModal && (
-            <div className={`fixed inset-0 bg-black/95 backdrop-blur-sm flex items-center justify-center z-[100] p-4 ${shuffleModalClosing ? 'animate-fadeOut' : 'animate-fadeIn'}`} onClick={() => { setShuffleModalClosing(true); setTimeout(() => { setShowShuffleModal(false); setShuffleAlbum(null); setShuffleGenre(null); setShuffleModalClosing(false); }, 400); }}>
+            <div className={`fixed inset-0 bg-black/95 backdrop-blur-sm flex items-center justify-center z-[10001] p-4 ${shuffleModalClosing ? 'animate-fadeOut' : 'animate-fadeIn'}`} onClick={() => { setShuffleModalClosing(true); setTimeout(() => { setShowShuffleModal(false); setShuffleAlbum(null); setShuffleGenre(null); setShuffleModalClosing(false); }, 400); }}>
               <div className={`${theme.cardBg} rounded-2xl p-6 max-w-sm w-full border ${theme.cardBorder} shadow-2xl ${shuffleModalClosing ? 'animate-scaleOut' : 'animate-scaleIn'} flex flex-col overflow-hidden`} style={{ height: userShuffleGenres.length >= 3 ? '600px' : '560px' }} onClick={e => e.stopPropagation()}>
                 
                 {/* Header - Fixed height */}
@@ -3725,7 +3725,7 @@
 
           {/* Album Selection Confirmation Modal */}
           {selectedAlbumForConfirm && (
-            <div className="fixed inset-0 bg-black/95 backdrop-blur-sm flex items-center justify-center z-[100] p-4" onClick={() => setSelectedAlbumForConfirm(null)}>
+            <div className="fixed inset-0 bg-black/95 backdrop-blur-sm flex items-center justify-center z-[10001] p-4" onClick={() => setSelectedAlbumForConfirm(null)}>
               <div className={`${theme.cardBg} rounded-2xl p-5 max-w-sm w-full border ${theme.cardBorder} shadow-2xl animate-scaleIn`} onClick={e => e.stopPropagation()}>
                 
                 {/* Header */}
@@ -3800,7 +3800,7 @@
 
           {/* iTunes Search Results Modal */}
           {showTracklistConfirm && tracklistMatches && (
-            <div className={`fixed inset-0 bg-black/95 backdrop-blur-sm flex items-center justify-center z-[100] p-4 ${tracklistModalClosing ? 'animate-fadeOut' : 'animate-fadeIn'}`} onClick={() => { setTracklistModalClosing(true); setTimeout(() => { setShowTracklistConfirm(false); setTracklistMatches(null); setTracklistModalClosing(false); }, 400); }}>
+            <div className={`fixed inset-0 bg-black/95 backdrop-blur-sm flex items-center justify-center z-[10001] p-4 ${tracklistModalClosing ? 'animate-fadeOut' : 'animate-fadeIn'}`} onClick={() => { setTracklistModalClosing(true); setTimeout(() => { setShowTracklistConfirm(false); setTracklistMatches(null); setTracklistModalClosing(false); }, 400); }}>
               <div className={`${theme.cardBg} rounded-2xl p-5 max-w-lg w-full border ${theme.cardBorder} shadow-2xl ${tracklistModalClosing ? 'animate-scaleOut' : 'animate-scaleIn'} max-h-[85vh] flex flex-col`} onClick={e => e.stopPropagation()}>
                 
                 {/* Header */}
@@ -4957,7 +4957,7 @@
 
           {/* Navigation Menu - Fixed positioning aligned to top-right */}
           {showMenu && (
-            <div className={`fixed top-[72px] w-64 ${theme.cardBg} rounded-2xl border ${theme.cardBorder} shadow-2xl z-[100] overflow-hidden animate-scaleIn origin-top-right`} style={{ right: 'max(1rem, calc((100vw - 72rem) / 2 + 1rem))' }}>
+            <div className={`fixed top-[72px] w-64 ${theme.cardBg} rounded-2xl border ${theme.cardBorder} shadow-2xl z-[10001] overflow-hidden animate-scaleIn origin-top-right`} style={{ right: 'max(1rem, calc((100vw - 72rem) / 2 + 1rem))' }}>
               {/* Navigation */}
               <div className="p-2">
                 <div className={`text-[10px] ${theme.textMuted} uppercase tracking-widest font-semibold px-4 py-2`}>Navigation</div>
@@ -5048,7 +5048,7 @@
                 </div>
                 
                 {/* Version */}
-                <div className={`text-[10px] ${theme.textMuted} text-center mt-2`}>Album Archive v0.06</div>
+                <div className={`text-[10px] ${theme.textMuted} text-center mt-2`}>Album Archive v0.07</div>
               </div>
             </div>
           )}
