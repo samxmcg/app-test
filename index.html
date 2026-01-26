@@ -566,6 +566,8 @@
     const Shuffle = ({ size = 24, className = '', style = {} }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} style={style}><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>;
     const Dice5 = ({ size = 24, className = '' }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M16 8h.01"/><path d="M8 8h.01"/><path d="M8 16h.01"/><path d="M16 16h.01"/><path d="M12 12h.01"/></svg>;
     const AlertCircle = ({ size = 24, className = '' }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
+    const Mail = ({ size = 24, className = '' }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>;
+    const Check = ({ size = 24, className = '' }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="20 6 9 17 4 12"/></svg>;
     const Clock = ({ size = 24, className = '' }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>;
     const EyeOff = ({ size = 24, className = '' }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>;
     const Minus = ({ size = 24, className = '' }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="5" y1="12" x2="19" y2="12"/></svg>;
@@ -593,30 +595,61 @@
     
     // Authentication helpers
     const supabaseAuth = {
-      async signUp(email, password, username) {
+      async signUp(email, password, username, dateOfBirth) {
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
-            data: { username }
+            data: { 
+              username,
+              date_of_birth: dateOfBirth
+            }
           }
         });
         if (error) throw error;
         return data;
       },
       
-      async signIn(email, password) {
+      async signIn(email, password, persistSession = true) {
+        // Set session persistence based on "Keep Signed In" preference
+        // Note: Supabase handles this via the persistSession option
         const { data, error } = await supabase.auth.signInWithPassword({
           email,
           password
         });
         if (error) throw error;
+        
+        // If user doesn't want to stay signed in, we'll handle session differently
+        if (!persistSession && data.session) {
+          // Store a flag to clear session on window close
+          sessionStorage.setItem('clearSessionOnClose', 'true');
+        } else {
+          sessionStorage.removeItem('clearSessionOnClose');
+        }
+        
         return data;
+      },
+      
+      async signInWithUsername(username, password, persistSession = true) {
+        // First, look up the email by username from profiles table
+        const { data: profile, error: lookupError } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('username', username.toLowerCase())
+          .single();
+        
+        if (lookupError || !profile) {
+          throw new Error('Username not found. Please check your username or use your email address.');
+        }
+        
+        // Now sign in with the email
+        return this.signIn(profile.email, password, persistSession);
       },
       
       async signOut() {
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
+        sessionStorage.removeItem('clearSessionOnClose');
       },
       
       async getSession() {
@@ -631,8 +664,53 @@
       
       onAuthStateChange(callback) {
         return supabase.auth.onAuthStateChange(callback);
+      },
+      
+      async resendVerification(email) {
+        const { error } = await supabase.auth.resend({
+          type: 'signup',
+          email: email
+        });
+        if (error) throw error;
+      },
+      
+      async checkUsernameAvailable(username) {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('username')
+          .eq('username', username.toLowerCase())
+          .single();
+        
+        // If no data found, username is available
+        if (error && error.code === 'PGRST116') return true;
+        if (error) throw error;
+        return !data; // Available if no profile found
+      },
+      
+      async getNextUserNumber() {
+        // Get the highest user_number and increment
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('user_number')
+          .order('user_number', { ascending: false })
+          .limit(1);
+        
+        if (error) throw error;
+        
+        if (data && data.length > 0 && data[0].user_number) {
+          return data[0].user_number + 1;
+        }
+        return 1; // First user
       }
     };
+    
+    // Handle session clearing on window close if user didn't select "Keep Signed In"
+    window.addEventListener('beforeunload', async () => {
+      if (sessionStorage.getItem('clearSessionOnClose') === 'true') {
+        // Sign out when window closes
+        await supabase.auth.signOut();
+      }
+    });
     
     // Database helpers
     const supabaseDB = {
@@ -644,6 +722,51 @@
           .eq('id', userId)
           .single();
         if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows
+        return data;
+      },
+      
+      async getProfileByUsername(username) {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('username', username.toLowerCase())
+          .single();
+        if (error && error.code !== 'PGRST116') throw error;
+        return data;
+      },
+      
+      async createProfile(userId, email, username, dateOfBirth) {
+        // Get next user number
+        let userNumber = 1;
+        try {
+          userNumber = await supabaseAuth.getNextUserNumber();
+        } catch (e) {
+          console.error('Error getting next user number, using default:', e);
+        }
+        
+        const { data, error } = await supabase
+          .from('profiles')
+          .insert({
+            id: userId,
+            email: email,
+            username: username.toLowerCase(),
+            display_name: username, // Keep original casing for display
+            date_of_birth: dateOfBirth,
+            user_number: userNumber,
+            join_date: new Date().toISOString().split('T')[0],
+            accent_color: 'coral',
+            profile_banner: 'gradient-1',
+            show_taglines: true,
+            show_separators: true,
+            show_in_progress: true,
+            sort_by: 'score',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+        
+        if (error) throw error;
         return data;
       },
       
@@ -1112,12 +1235,16 @@
       // Authentication state
       const [isAuthenticated, setIsAuthenticated] = useState(false);
       const [currentUser, setCurrentUser] = useState('');
-      const [staySignedIn, setStaySignedIn] = useState(false);
+      const [staySignedIn, setStaySignedIn] = useState(true);
       const [showAuthModal, setShowAuthModal] = useState(false);
-      const [authMode, setAuthMode] = useState('login'); // 'login', 'create', 'change'
+      const [authMode, setAuthMode] = useState('login'); // 'login', 'create', 'verify', 'change'
       const [authUsername, setAuthUsername] = useState('');
       const [authPassword, setAuthPassword] = useState('');
       const [authError, setAuthError] = useState('');
+      const [authDateOfBirth, setAuthDateOfBirth] = useState('');
+      const [pendingVerificationEmail, setPendingVerificationEmail] = useState('');
+      const [usernameAvailable, setUsernameAvailable] = useState(null);
+      const [checkingUsername, setCheckingUsername] = useState(false);
       
       // Supabase session state
       const [session, setSession] = useState(null);
@@ -1302,8 +1429,41 @@
               setUser(session.user);
               setIsAuthenticated(true);
               setCurrentUser(session.user.email);
+              
+              // Check if this is a new user who just verified their email
+              // This happens when event is 'SIGNED_IN' and user has no profile yet
+              if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+                const existingProfile = await supabaseDB.getProfile(session.user.id);
+                
+                if (!existingProfile) {
+                  console.log('New user detected, creating profile...');
+                  // Get user metadata from auth
+                  const userMetadata = session.user.user_metadata || {};
+                  const username = userMetadata.username || session.user.email.split('@')[0];
+                  const dateOfBirth = userMetadata.date_of_birth || null;
+                  
+                  try {
+                    await supabaseDB.createProfile(
+                      session.user.id,
+                      session.user.email,
+                      username,
+                      dateOfBirth
+                    );
+                    console.log('Profile created successfully for new user');
+                    // Show welcome modal for new users
+                    setShowWelcomeModal(true);
+                  } catch (profileError) {
+                    console.error('Error creating profile:', profileError);
+                    // Try to continue anyway - profile will be created on next load
+                  }
+                }
+              }
+              
               await loadSupabaseData(session.user.id);
               setShowAuthModal(false);
+              
+              // Clear any pending verification state
+              setPendingVerificationEmail('');
             } else {
               console.log('User logged out');
               setUser(null);
@@ -1443,12 +1603,12 @@
       const loadSupabaseData = async (userId) => {
         console.log('loadSupabaseData called with userId:', userId);
         
-        // Emergency timeout - if loading takes more than 8 seconds, force finish
+        // Emergency timeout - if loading takes more than 12 seconds, force finish
         const timeoutId = setTimeout(() => {
-          console.error('LOADING TIMEOUT - Forcing finish after 8 seconds');
+          console.error('LOADING TIMEOUT - Forcing finish after 12 seconds');
           setIsLoading(false);
-          alert('Loading timed out after 8 seconds. You can continue but some data may not have loaded. Try refreshing.');
-        }, 8000);
+          alert('Loading timed out. You can continue but some data may not have loaded. Try refreshing.');
+        }, 12000);
         
         try {
           // Reset all data first (but keep current accent color unless overridden by profile)
@@ -1460,51 +1620,60 @@
           setUserProfilePic('');
           setFavouriteAlbumId('');
           setSpotlightAlbumId('');
-          // Don't reset accent color - it will be set from profile or stay as current
           setProfileBanner('gradient-1');
           setShowTaglines(true);
           setShowSeparators(true);
           setSortBy('score');
           
           console.log('Attempting to load profile...');
-          // Load profile from Supabase with timeout
+          
+          // Try to load profile - don't use race/timeout, just try directly
           let profile = null;
           try {
-            // Race between profile fetch and 5-second timeout
-            const profilePromise = supabaseDB.getProfile(userId);
-            const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Profile fetch timeout')), 5000)
-            );
-            
-            profile = await Promise.race([profilePromise, timeoutPromise]);
+            profile = await supabaseDB.getProfile(userId);
             console.log('Profile loaded:', profile ? 'Found' : 'Not found');
           } catch (profileError) {
-            console.error('Profile fetch error:', profileError.message);
-            
-            // If profile doesn't exist OR times out, create a new one
-            if (profileError.code === 'PGRST116' || profileError.message.includes('timeout')) {
-              console.log('Creating new profile for user...');
-              try {
-                profile = await supabaseDB.upsertProfile(userId, {
-                  name: '',
-                  accent_color: 'coral',
-                  profile_banner: 'gradient-1',
-                  show_taglines: true,
-                  show_separators: true,
-                  show_in_progress: true,
-                  sort_by: 'score'
-                });
-                console.log('New profile created successfully:', profile);
-              } catch (createError) {
-                console.error('Failed to create profile:', createError);
-                // Continue anyway with defaults
-                profile = null;
+            console.error('Profile fetch error:', profileError.message, profileError.code);
+            profile = null;
+          }
+          
+          // If no profile exists, the auth listener should have created one
+          // But if it didn't, try to create one now using session data
+          if (!profile) {
+            console.log('No profile found, attempting to create one...');
+            try {
+              const session = await supabaseAuth.getSession();
+              if (session && session.user) {
+                const userMetadata = session.user.user_metadata || {};
+                const username = userMetadata.username || session.user.email.split('@')[0];
+                const dateOfBirth = userMetadata.date_of_birth || null;
+                
+                profile = await supabaseDB.createProfile(
+                  userId,
+                  session.user.email,
+                  username,
+                  dateOfBirth
+                );
+                console.log('Profile created successfully:', profile);
+                setShowWelcomeModal(true);
+              }
+            } catch (createError) {
+              console.error('Failed to create profile:', createError);
+              // If it's a duplicate key error, try to fetch again
+              if (createError.message.includes('duplicate') || createError.code === '23505') {
+                console.log('Profile might exist, trying to fetch again...');
+                try {
+                  profile = await supabaseDB.getProfile(userId);
+                } catch (e) {
+                  console.error('Still cannot fetch profile:', e);
+                }
               }
             }
           }
           
           if (profile) {
-            setUserName(profile.name || '');
+            // Set display name from profile
+            setUserName(profile.display_name || profile.name || '');
             setUserAge(profile.age || '');
             setUserLocation(profile.location || '');
             setUserBio(profile.bio || '');
@@ -1512,12 +1681,11 @@
             setFavouriteAlbumId(profile.favourite_album_id || '');
             setSpotlightAlbumId(profile.spotlight_album_id || '');
             
-            // Set accent color from profile, or use default if not set
+            // Set accent color from profile
             if (profile.accent_color && colorThemes[profile.accent_color]) {
               console.log('Setting accent color from profile:', profile.accent_color);
               setAccentColor(profile.accent_color);
-            } else if (!profile.accent_color) {
-              // Only set to coral if profile has no accent color set
+            } else {
               console.log('No accent color in profile, using default coral');
               setAccentColor('coral');
             }
@@ -1529,19 +1697,27 @@
             setShowSeparators(profile.show_separators !== false);
             setShowInProgress(profile.show_in_progress !== false);
             setSortBy(profile.sort_by || 'score');
+            
+            // Store username for display
+            setCurrentUser(profile.display_name || profile.username || profile.email);
           } else {
-            // No profile found, use defaults
             console.log('No profile found, using defaults');
             setAccentColor('coral');
           }
           
           console.log('Attempting to load albums...');
           // Load albums from Supabase
-          const albumsData = await supabaseDB.getAlbums(userId);
-          console.log('Albums loaded:', albumsData ? albumsData.length : 0, 'albums');
+          let albumsData = [];
+          try {
+            albumsData = await supabaseDB.getAlbums(userId);
+            console.log('Albums loaded:', albumsData ? albumsData.length : 0, 'albums');
+          } catch (albumError) {
+            console.error('Error loading albums:', albumError);
+            albumsData = [];
+          }
           
           if (albumsData && albumsData.length > 0) {
-            // Convert Supabase format to app format (using OLD property names for compatibility)
+            // Convert Supabase format to app format
             const formattedAlbums = albumsData.map(album => ({
               id: album.album_id,
               artistName: album.artist_name,
@@ -1558,21 +1734,20 @@
               okPercent: album.ok_percent || 0,
               skipPercent: album.skip_percent || 0,
               isInProgress: album.in_progress || false,
-              dbId: album.id // Keep Supabase ID for updates
+              dbId: album.id
             }));
             setAlbums(formattedAlbums);
           }
           
           console.log('Data loading complete');
-          clearTimeout(timeoutId); // Cancel timeout if we finished successfully
+          clearTimeout(timeoutId);
         } catch (error) {
           console.error('CRITICAL ERROR loading data from Supabase:', error);
           console.error('Error details:', error.message, error.code);
-          clearTimeout(timeoutId); // Cancel timeout
-          // Still set loading to false so user isn't stuck
-          alert('Failed to load your data. Please try logging out and back in. Error: ' + error.message);
+          clearTimeout(timeoutId);
+          // Don't show alert for every error - just log it
+          console.error('Failed to load data. Please try refreshing.');
         } finally {
-          // ALWAYS set loading to false, even if there's an error
           console.log('Setting isLoading to false');
           setIsLoading(false);
         }
@@ -1644,11 +1819,39 @@
       const handleLogin = async () => {
         try {
           setAuthError('');
-          const { user, session } = await supabaseAuth.signIn(authEmail, authPassword);
           
-          console.log('Login response:', { user, session });
+          const loginIdentifier = authEmail.trim();
+          const password = authPassword;
           
-          // Auth state change will handle the rest via listener
+          if (!loginIdentifier || !password) {
+            setAuthError('Please enter your username/email and password');
+            return;
+          }
+          
+          let result;
+          
+          // Check if the identifier is an email or username
+          const isEmail = loginIdentifier.includes('@');
+          
+          if (isEmail) {
+            result = await supabaseAuth.signIn(loginIdentifier, password, staySignedIn);
+          } else {
+            // It's a username - look up email first
+            try {
+              result = await supabaseAuth.signInWithUsername(loginIdentifier, password, staySignedIn);
+            } catch (usernameError) {
+              // If username lookup fails, show helpful error
+              if (usernameError.message.includes('Username not found')) {
+                setAuthError('Username not found. Please check your username or use your email address.');
+                return;
+              }
+              throw usernameError;
+            }
+          }
+          
+          console.log('Login response:', result);
+          
+          // Clear form fields
           setAuthUsername('');
           setAuthEmail('');
           setAuthPassword('');
@@ -1656,11 +1859,14 @@
         } catch (error) {
           console.error('Login error:', error);
           if (error.message.includes('Invalid login credentials')) {
-            setAuthError('Invalid email or password');
+            setAuthError('Invalid email/username or password');
           } else if (error.message.includes('Email not confirmed')) {
-            setAuthError('Please confirm your email address before signing in. Check your inbox for a confirmation link.');
+            setAuthError('Please verify your email address before signing in. Check your inbox for the confirmation link.');
+            // Show option to resend
+            setPendingVerificationEmail(authEmail);
           } else if (error.message.includes('not confirmed')) {
             setAuthError('Email not verified. Please check your inbox for the confirmation link.');
+            setPendingVerificationEmail(authEmail);
           } else {
             setAuthError(error.message || 'Login failed. Please try again.');
           }
@@ -1668,20 +1874,42 @@
       };
       
       const resendVerificationEmail = async () => {
-        if (!authEmail.trim()) {
+        const emailToVerify = pendingVerificationEmail || authEmail.trim();
+        
+        if (!emailToVerify) {
           setAuthError('Please enter your email address first');
           return;
         }
         
         try {
-          await supabase.auth.resend({
-            type: 'signup',
-            email: authEmail
-          });
-          alert('Verification email sent! Please check your inbox.');
+          await supabaseAuth.resendVerification(emailToVerify);
+          alert('Verification email sent! Please check your inbox (and spam folder).');
         } catch (error) {
           console.error('Resend error:', error);
           setAuthError('Failed to resend email. Please try again.');
+        }
+      };
+      
+      // Handle username input change
+      const handleUsernameChange = (value) => {
+        setAuthUsername(value);
+        setUsernameAvailable(null);
+        if (value.length >= 3) {
+          setCheckingUsername(true);
+          // Check username availability after a delay
+          const timeoutId = setTimeout(async () => {
+            try {
+              const available = await supabaseAuth.checkUsernameAvailable(value);
+              setUsernameAvailable(available);
+            } catch (error) {
+              console.error('Username check error:', error);
+              setUsernameAvailable(null);
+            } finally {
+              setCheckingUsername(false);
+            }
+          }, 500);
+          // Cleanup on next change
+          return () => clearTimeout(timeoutId);
         }
       };
 
@@ -1694,8 +1922,40 @@
         try {
           setAuthError('');
           
-          if (!authEmail.trim() || !authPassword.trim() || !authUsername.trim()) {
-            setAuthError('Email, username, and password are required');
+          // Validate all fields
+          if (!authUsername.trim()) {
+            setAuthError('Username is required');
+            return;
+          }
+          
+          if (!authEmail.trim()) {
+            setAuthError('Email address is required');
+            return;
+          }
+          
+          if (!authPassword.trim()) {
+            setAuthError('Password is required');
+            return;
+          }
+          
+          if (!authDateOfBirth) {
+            setAuthError('Date of birth is required');
+            return;
+          }
+          
+          // Validate username format
+          if (authUsername.length < 3) {
+            setAuthError('Username must be at least 3 characters');
+            return;
+          }
+          
+          if (authUsername.length > 20) {
+            setAuthError('Username must be 20 characters or less');
+            return;
+          }
+          
+          if (!/^[a-zA-Z0-9_]+$/.test(authUsername)) {
+            setAuthError('Username can only contain letters, numbers, and underscores');
             return;
           }
           
@@ -1706,39 +1966,67 @@
             return;
           }
           
-          if (authUsername.length < 3) {
-            setAuthError('Username must be at least 3 characters');
-            return;
-          }
-          
+          // Validate password
           if (authPassword.length < 6) {
             setAuthError('Password must be at least 6 characters');
             return;
           }
           
-          const { user } = await supabaseAuth.signUp(authEmail, authPassword, authUsername);
+          // Validate date of birth (must be at least 13 years old)
+          const dob = new Date(authDateOfBirth);
+          const today = new Date();
+          const age = today.getFullYear() - dob.getFullYear();
+          const monthDiff = today.getMonth() - dob.getMonth();
+          const actualAge = monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate()) 
+            ? age - 1 
+            : age;
+          
+          if (actualAge < 13) {
+            setAuthError('You must be at least 13 years old to create an account');
+            return;
+          }
+          
+          // Check username availability
+          try {
+            const available = await supabaseAuth.checkUsernameAvailable(authUsername);
+            if (!available) {
+              setAuthError('This username is already taken. Please choose another.');
+              return;
+            }
+          } catch (e) {
+            console.error('Username check failed:', e);
+            // Continue anyway - worst case we'll get an error on insert
+          }
+          
+          // Create the auth account
+          const { user } = await supabaseAuth.signUp(
+            authEmail, 
+            authPassword, 
+            authUsername,
+            authDateOfBirth
+          );
           
           // Check if email confirmation is required
           if (user && user.identities && user.identities.length === 0) {
-            // Email already registered
             setAuthError('This email is already registered. Please sign in instead.');
             return;
           }
           
-          // Show email verification message
-          setAuthError('');
-          alert(`Account created! Please check ${authEmail} for a confirmation link before signing in.`);
+          // Store pending verification email for resend functionality
+          setPendingVerificationEmail(authEmail);
           
-          // Switch to login mode
-          setAuthMode('login');
-          setAuthUsername('');
-          setAuthPassword('');
+          // Switch to verification mode
+          setAuthMode('verify');
+          setAuthError('');
+          
         } catch (error) {
           console.error('Signup error:', error);
           if (error.message.includes('already registered')) {
             setAuthError('This email is already registered. Please sign in instead.');
           } else if (error.message.includes('Password')) {
             setAuthError('Password must be at least 6 characters');
+          } else if (error.message.includes('username')) {
+            setAuthError('This username is already taken. Please choose another.');
           } else {
             setAuthError(error.message || 'Account creation failed. Please try again.');
           }
@@ -3880,30 +4168,36 @@
         <div className={`min-h-screen ${theme.bg} ${theme.text} transition-colors duration-200`}>
           {/* Authentication Modal */}
           {showAuthModal && (
-            <div className="fixed inset-0 flex items-center justify-center z-[10000] p-4">
+            <div className="fixed inset-0 flex items-center justify-center z-[10000] p-4 overflow-y-auto">
               {/* Animated background elements */}
               <div className="absolute inset-0 overflow-hidden">
                 <div className={`absolute top-20 left-10 w-72 h-72 bg-gradient-to-br ${accent.from} ${accent.to} rounded-full opacity-20 blur-3xl animate-float`} style={{animationDuration: '8s'}} />
                 <div className={`absolute bottom-20 right-10 w-96 h-96 bg-gradient-to-br ${accent.from} ${accent.to} rounded-full opacity-15 blur-3xl animate-float`} style={{animationDuration: '12s', animationDelay: '2s'}} />
               </div>
               
-              <div className={`relative ${theme.cardBg} rounded-3xl p-8 max-w-md w-full border ${theme.cardBorder} shadow-2xl animate-scaleIn backdrop-blur-xl ${darkMode ? 'bg-neutral-900/90' : 'bg-white/90'} overflow-hidden`} onClick={e => e.stopPropagation()}>
+              <div className={`relative ${theme.cardBg} rounded-3xl p-8 max-w-md w-full border ${theme.cardBorder} shadow-2xl animate-scaleIn backdrop-blur-xl ${darkMode ? 'bg-neutral-900/90' : 'bg-white/90'} overflow-hidden my-auto`} onClick={e => e.stopPropagation()}>
                 {/* Decorative top accent */}
                 <div className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${accent.from} ${accent.to}`} />
                 
                 {/* Header with icon */}
                 <div className="text-center mb-6">
                   <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br ${accent.from} ${accent.to} shadow-lg mb-4`}>
-                    <Lock size={28} className="text-white" />
+                    {authMode === 'verify' ? (
+                      <Mail size={28} className="text-white" />
+                    ) : (
+                      <Lock size={28} className="text-white" />
+                    )}
                   </div>
                   <h3 className="text-2xl font-bold mb-1">
                     {authMode === 'login' && 'Welcome Back'}
                     {authMode === 'create' && 'Create Account'}
+                    {authMode === 'verify' && 'Verify Your Email'}
                     {authMode === 'change' && 'Change Password'}
                   </h3>
                   <p className={`text-sm ${theme.textMuted}`}>
                     {authMode === 'login' && 'Sign in to access your music collection'}
                     {authMode === 'create' && 'Start your music review journey'}
+                    {authMode === 'verify' && 'Check your inbox to complete registration'}
                     {authMode === 'change' && 'Update your account password'}
                   </p>
                 </div>
@@ -3911,7 +4205,7 @@
                 {authError && (
                   <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl animate-shake">
                     <p className="text-sm text-red-400 text-center font-medium mb-2">{authError}</p>
-                    {(authError.includes('Email not confirmed') || authError.includes('not verified') || authError.includes('confirm your email')) && (
+                    {(authError.includes('verify') || authError.includes('confirmed') || authError.includes('confirmation')) && pendingVerificationEmail && (
                       <button
                         onClick={resendVerificationEmail}
                         className="w-full mt-2 px-3 py-2 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg transition-colors font-medium"
@@ -3922,93 +4216,224 @@
                   </div>
                 )}
                 
-                <div className="space-y-4 mb-6">
-                  {authMode === 'create' && (
+                {/* Verification Mode */}
+                {authMode === 'verify' && (
+                  <div className="space-y-4 mb-6">
+                    <div className={`p-4 rounded-xl ${darkMode ? 'bg-neutral-800/50' : 'bg-neutral-100'} border ${theme.cardBorder}`}>
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className={`p-2 rounded-lg bg-gradient-to-br ${accent.from} ${accent.to}`}>
+                          <Mail size={16} className="text-white" />
+                        </div>
+                        <span className={`text-sm font-medium ${theme.text}`}>Email sent to:</span>
+                      </div>
+                      <p className={`font-mono text-sm ${accent.text} break-all`}>{pendingVerificationEmail}</p>
+                    </div>
+                    
+                    <div className={`space-y-2 text-sm ${theme.textMuted}`}>
+                      <p className="flex items-start gap-2">
+                        <span className={`${accent.text} font-bold`}>1.</span>
+                        Check your inbox (and spam folder)
+                      </p>
+                      <p className="flex items-start gap-2">
+                        <span className={`${accent.text} font-bold`}>2.</span>
+                        Click the verification link in the email
+                      </p>
+                      <p className="flex items-start gap-2">
+                        <span className={`${accent.text} font-bold`}>3.</span>
+                        Return here and sign in
+                      </p>
+                    </div>
+                    
+                    <button
+                      onClick={resendVerificationEmail}
+                      className={`w-full px-4 py-3 ${darkMode ? 'bg-neutral-800/50 hover:bg-neutral-700' : 'bg-neutral-100 hover:bg-neutral-200'} rounded-xl transition-all font-medium text-sm border ${theme.cardBorder}`}
+                    >
+                      Resend Verification Email
+                    </button>
+                  </div>
+                )}
+                
+                {/* Login Mode */}
+                {authMode === 'login' && (
+                  <div className="space-y-4 mb-6">
                     <div>
-                      <label className={`block text-xs font-semibold mb-2 ${theme.textSoft} uppercase tracking-wide`}>Username</label>
+                      <label className={`block text-xs font-semibold mb-2 ${theme.textSoft} uppercase tracking-wide`}>Username or Email</label>
                       <input
                         type="text"
-                        value={authUsername}
-                        onChange={(e) => setAuthUsername(e.target.value)}
-                        className={`w-full px-4 py-3 ${theme.inputBg} border rounded-xl ${theme.text} focus:ring-2 focus:ring-${accent.from} transition-all`}
-                        placeholder="Choose a username"
+                        value={authEmail}
+                        onChange={(e) => setAuthEmail(e.target.value)}
+                        className={`w-full px-4 py-3 ${theme.inputBg} border rounded-xl ${theme.text} focus:ring-2 focus:ring-pink-400/50 transition-all`}
+                        placeholder="Enter username or email"
                         autoFocus
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleLogin(); }}
                       />
                     </div>
-                  )}
-                  
-                  <div>
-                    <label className={`block text-xs font-semibold mb-2 ${theme.textSoft} uppercase tracking-wide`}>Email</label>
-                    <input
-                      type="email"
-                      value={authEmail}
-                      onChange={(e) => setAuthEmail(e.target.value)}
-                      className={`w-full px-4 py-3 ${theme.inputBg} border rounded-xl ${theme.text} focus:ring-2 focus:ring-${accent.from} transition-all`}
-                      placeholder="Enter email address"
-                      autoFocus={authMode !== 'create'}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          if (authMode === 'login') handleLogin();
-                          else if (authMode === 'create') handleCreateAccount();
-                          else if (authMode === 'change') handleChangePassword();
-                        }
-                      }}
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className={`block text-xs font-semibold mb-2 ${theme.textSoft} uppercase tracking-wide`}>Password</label>
-                    <input
-                      type="password"
-                      value={authPassword}
-                      onChange={(e) => setAuthPassword(e.target.value)}
-                      className={`w-full px-4 py-3 ${theme.inputBg} border rounded-xl ${theme.text} focus:ring-2 focus:ring-${accent.from} transition-all`}
-                      placeholder={authMode === 'create' ? 'Create password (min 6 characters)' : 'Enter password'}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          if (authMode === 'login') handleLogin();
-                          else if (authMode === 'create') handleCreateAccount();
-                          else if (authMode === 'change') handleChangePassword();
-                        }
-                      }}
-                    />
-                  </div>
-                  
-                  {(authMode === 'login' || authMode === 'create') && (
+                    
+                    <div>
+                      <label className={`block text-xs font-semibold mb-2 ${theme.textSoft} uppercase tracking-wide`}>Password</label>
+                      <input
+                        type="password"
+                        value={authPassword}
+                        onChange={(e) => setAuthPassword(e.target.value)}
+                        className={`w-full px-4 py-3 ${theme.inputBg} border rounded-xl ${theme.text} focus:ring-2 focus:ring-pink-400/50 transition-all`}
+                        placeholder="Enter password"
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleLogin(); }}
+                      />
+                    </div>
+                    
                     <div className="flex items-center gap-3 pt-2">
                       <input
                         type="checkbox"
-                        id={authMode === 'login' ? 'staySignedIn' : 'staySignedInCreate'}
+                        id="staySignedIn"
                         checked={staySignedIn}
                         onChange={(e) => setStaySignedIn(e.target.checked)}
-                        className={`w-5 h-5 rounded border-2 ${darkMode ? 'border-neutral-700' : 'border-neutral-300'} cursor-pointer`}
-                        style={{accentColor: accent.from}}
+                        className={`w-5 h-5 rounded border-2 ${darkMode ? 'border-neutral-700' : 'border-neutral-300'} cursor-pointer accent-pink-500`}
                       />
-                      <label htmlFor={authMode === 'login' ? 'staySignedIn' : 'staySignedInCreate'} className={`text-sm ${theme.textSoft} cursor-pointer select-none`}>
-                        Stay signed in
+                      <label htmlFor="staySignedIn" className={`text-sm ${theme.textSoft} cursor-pointer select-none`}>
+                        Keep me signed in
                       </label>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
                 
-                <button
-                  onClick={() => {
-                    if (authMode === 'login') handleLogin();
-                    else if (authMode === 'create') handleCreateAccount();
-                    else if (authMode === 'change') handleChangePassword();
-                  }}
-                  className={`w-full px-4 py-4 bg-gradient-to-r ${accent.from} ${accent.to} text-white rounded-xl font-bold shadow-lg hover:shadow-2xl active:scale-95 transition-all duration-200 mb-4 text-base hover-shine`}
-                >
-                  {authMode === 'login' && 'Sign In'}
-                  {authMode === 'create' && 'Create Account'}
-                  {authMode === 'change' && 'Change Password'}
-                </button>
+                {/* Create Account Mode */}
+                {authMode === 'create' && (
+                  <div className="space-y-4 mb-6">
+                    <div>
+                      <label className={`block text-xs font-semibold mb-2 ${theme.textSoft} uppercase tracking-wide`}>Username</label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={authUsername}
+                          onChange={(e) => handleUsernameChange(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                          className={`w-full px-4 py-3 ${theme.inputBg} border rounded-xl ${theme.text} focus:ring-2 focus:ring-pink-400/50 transition-all pr-10`}
+                          placeholder="Choose a username"
+                          maxLength={20}
+                          autoFocus
+                        />
+                        {authUsername.length >= 3 && (
+                          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                            {checkingUsername ? (
+                              <div className={`w-5 h-5 border-2 border-neutral-400 border-t-transparent rounded-full animate-spin`} />
+                            ) : usernameAvailable === true ? (
+                              <Check size={20} className="text-green-500" />
+                            ) : usernameAvailable === false ? (
+                              <X size={20} className="text-red-500" />
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
+                      <p className={`text-xs mt-1 ${theme.textMuted}`}>
+                        3-20 characters, letters, numbers, and underscores only
+                      </p>
+                    </div>
+                    
+                    <div>
+                      <label className={`block text-xs font-semibold mb-2 ${theme.textSoft} uppercase tracking-wide`}>Email Address</label>
+                      <input
+                        type="email"
+                        value={authEmail}
+                        onChange={(e) => setAuthEmail(e.target.value)}
+                        className={`w-full px-4 py-3 ${theme.inputBg} border rounded-xl ${theme.text} focus:ring-2 focus:ring-pink-400/50 transition-all`}
+                        placeholder="your@email.com"
+                      />
+                      <p className={`text-xs mt-1 ${theme.textMuted}`}>
+                        Used for verification and account recovery
+                      </p>
+                    </div>
+                    
+                    <div>
+                      <label className={`block text-xs font-semibold mb-2 ${theme.textSoft} uppercase tracking-wide`}>Password</label>
+                      <input
+                        type="password"
+                        value={authPassword}
+                        onChange={(e) => setAuthPassword(e.target.value)}
+                        className={`w-full px-4 py-3 ${theme.inputBg} border rounded-xl ${theme.text} focus:ring-2 focus:ring-pink-400/50 transition-all`}
+                        placeholder="Create a password (min 6 characters)"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className={`block text-xs font-semibold mb-2 ${theme.textSoft} uppercase tracking-wide`}>Date of Birth</label>
+                      <input
+                        type="date"
+                        value={authDateOfBirth}
+                        onChange={(e) => setAuthDateOfBirth(e.target.value)}
+                        className={`w-full px-4 py-3 ${theme.inputBg} border rounded-xl ${theme.text} focus:ring-2 focus:ring-pink-400/50 transition-all`}
+                        max={new Date(new Date().setFullYear(new Date().getFullYear() - 13)).toISOString().split('T')[0]}
+                      />
+                      <p className={`text-xs mt-1 ${theme.textMuted}`}>
+                        You must be at least 13 years old
+                      </p>
+                    </div>
+                    
+                    <div className="flex items-center gap-3 pt-2">
+                      <input
+                        type="checkbox"
+                        id="staySignedInCreate"
+                        checked={staySignedIn}
+                        onChange={(e) => setStaySignedIn(e.target.checked)}
+                        className={`w-5 h-5 rounded border-2 ${darkMode ? 'border-neutral-700' : 'border-neutral-300'} cursor-pointer accent-pink-500`}
+                      />
+                      <label htmlFor="staySignedInCreate" className={`text-sm ${theme.textSoft} cursor-pointer select-none`}>
+                        Keep me signed in
+                      </label>
+                    </div>
+                  </div>
+                )}
                 
+                {/* Change Password Mode */}
+                {authMode === 'change' && (
+                  <div className="space-y-4 mb-6">
+                    <div>
+                      <label className={`block text-xs font-semibold mb-2 ${theme.textSoft} uppercase tracking-wide`}>Email</label>
+                      <input
+                        type="email"
+                        value={authEmail}
+                        onChange={(e) => setAuthEmail(e.target.value)}
+                        className={`w-full px-4 py-3 ${theme.inputBg} border rounded-xl ${theme.text} focus:ring-2 focus:ring-pink-400/50 transition-all`}
+                        placeholder="Enter your email"
+                        autoFocus
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className={`block text-xs font-semibold mb-2 ${theme.textSoft} uppercase tracking-wide`}>Current Password</label>
+                      <input
+                        type="password"
+                        value={authPassword}
+                        onChange={(e) => setAuthPassword(e.target.value)}
+                        className={`w-full px-4 py-3 ${theme.inputBg} border rounded-xl ${theme.text} focus:ring-2 focus:ring-pink-400/50 transition-all`}
+                        placeholder="Enter current password"
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleChangePassword(); }}
+                      />
+                    </div>
+                  </div>
+                )}
+                
+                {/* Action Button */}
+                {authMode !== 'verify' && (
+                  <button
+                    onClick={() => {
+                      if (authMode === 'login') handleLogin();
+                      else if (authMode === 'create') handleCreateAccount();
+                      else if (authMode === 'change') handleChangePassword();
+                    }}
+                    disabled={authMode === 'create' && usernameAvailable === false}
+                    className={`w-full px-4 py-4 bg-gradient-to-r ${accent.from} ${accent.to} text-white rounded-xl font-bold shadow-lg hover:shadow-2xl active:scale-95 transition-all duration-200 mb-4 text-base hover-shine disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100`}
+                  >
+                    {authMode === 'login' && 'Sign In'}
+                    {authMode === 'create' && 'Create Account'}
+                    {authMode === 'change' && 'Change Password'}
+                  </button>
+                )}
+                
+                {/* Navigation Buttons */}
                 <div className="space-y-2">
                   {authMode === 'login' && (
                     <>
                       <button
-                        onClick={() => { setAuthMode('create'); setAuthError(''); }}
+                        onClick={() => { setAuthMode('create'); setAuthError(''); setAuthEmail(''); setAuthPassword(''); setAuthUsername(''); setAuthDateOfBirth(''); }}
                         className={`w-full px-4 py-3.5 ${darkMode ? 'bg-neutral-800/50 hover:bg-neutral-700' : 'bg-neutral-100 hover:bg-neutral-200'} rounded-xl transition-all font-medium text-sm border ${theme.cardBorder} active:scale-[0.98]`}
                       >
                         Create New Account
@@ -4023,10 +4448,18 @@
                   )}
                   {(authMode === 'create' || authMode === 'change') && (
                     <button
-                      onClick={() => { setAuthMode('login'); setAuthError(''); setAuthUsername(''); setAuthPassword(''); }}
+                      onClick={() => { setAuthMode('login'); setAuthError(''); setAuthUsername(''); setAuthPassword(''); setAuthDateOfBirth(''); setUsernameAvailable(null); }}
                       className={`w-full px-4 py-3.5 ${darkMode ? 'bg-neutral-800/50 hover:bg-neutral-700' : 'bg-neutral-100 hover:bg-neutral-200'} rounded-xl transition-all font-medium text-sm border ${theme.cardBorder} active:scale-[0.98]`}
                     >
                       ← Back to Sign In
+                    </button>
+                  )}
+                  {authMode === 'verify' && (
+                    <button
+                      onClick={() => { setAuthMode('login'); setAuthError(''); setAuthPassword(''); }}
+                      className={`w-full px-4 py-4 bg-gradient-to-r ${accent.from} ${accent.to} text-white rounded-xl font-bold shadow-lg hover:shadow-2xl active:scale-95 transition-all duration-200 text-base hover-shine`}
+                    >
+                      Continue to Sign In →
                     </button>
                   )}
                 </div>
