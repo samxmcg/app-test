@@ -1230,6 +1230,7 @@
       const [pendingVerificationEmail, setPendingVerificationEmail] = useState('');
       const [usernameAvailable, setUsernameAvailable] = useState(null);
       const [checkingUsername, setCheckingUsername] = useState(false);
+      const isLoggingOutRef = useRef(false); // Ref to prevent re-auth during logout
       
       // Supabase session state
       const [session, setSession] = useState(null);
@@ -1403,54 +1404,64 @@
         
         // Listen for auth state changes
         const { data: { subscription } } = supabaseAuth.onAuthStateChange(async (event, session) => {
-          console.log('Auth state changed:', event);
-          console.log('Session:', session ? 'Active' : 'None');
+          console.log('Auth state changed:', event, 'Session:', session ? 'Active' : 'None');
+          
+          // CRITICAL: If we're in the middle of logging out, ignore any auth events
+          // This prevents the race condition where signOut triggers SIGNED_IN again
+          if (isLoggingOutRef.current) {
+            console.log('Ignoring auth event - logout in progress');
+            return;
+          }
           
           try {
+            if (event === 'SIGNED_OUT') {
+              console.log('User signed out event received');
+              setSession(null);
+              setUser(null);
+              setIsAuthenticated(false);
+              setCurrentUser('');
+              setAlbums([]);
+              setIsLoading(false);
+              setShowAuthModal(true);
+              return;
+            }
+            
             setSession(session);
             
-            if (session) {
+            if (session && event === 'SIGNED_IN') {
               console.log('User authenticated:', session.user.email);
               setUser(session.user);
               setIsAuthenticated(true);
               setCurrentUser(session.user.email);
               
               // Check if this is a new user who just verified their email
-              // This happens when event is 'SIGNED_IN' and user has no profile yet
-              if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
-                const existingProfile = await supabaseDB.getProfile(session.user.id);
+              const existingProfile = await supabaseDB.getProfile(session.user.id);
+              
+              if (!existingProfile) {
+                console.log('New user detected, creating profile...');
+                const userMetadata = session.user.user_metadata || {};
+                const username = userMetadata.username || session.user.email.split('@')[0];
+                const dateOfBirth = userMetadata.date_of_birth || null;
                 
-                if (!existingProfile) {
-                  console.log('New user detected, creating profile...');
-                  // Get user metadata from auth
-                  const userMetadata = session.user.user_metadata || {};
-                  const username = userMetadata.username || session.user.email.split('@')[0];
-                  const dateOfBirth = userMetadata.date_of_birth || null;
-                  
-                  try {
-                    await supabaseDB.createProfile(
-                      session.user.id,
-                      session.user.email,
-                      username,
-                      dateOfBirth
-                    );
-                    console.log('Profile created successfully for new user');
-                    // Show welcome modal for new users
-                    setShowWelcomeModal(true);
-                  } catch (profileError) {
-                    console.error('Error creating profile:', profileError);
-                    // Try to continue anyway - profile will be created on next load
-                  }
+                try {
+                  await supabaseDB.createProfile(
+                    session.user.id,
+                    session.user.email,
+                    username,
+                    dateOfBirth
+                  );
+                  console.log('Profile created successfully for new user');
+                  setShowWelcomeModal(true);
+                } catch (profileError) {
+                  console.error('Error creating profile:', profileError);
                 }
               }
               
               await loadSupabaseData(session.user.id);
               setShowAuthModal(false);
-              
-              // Clear any pending verification state
               setPendingVerificationEmail('');
-            } else {
-              console.log('User logged out');
+            } else if (!session) {
+              console.log('No session');
               setUser(null);
               setIsAuthenticated(false);
               setCurrentUser('');
@@ -2039,6 +2050,9 @@
       const handleLogout = async () => {
         console.log('handleLogout called');
         
+        // Set flag to prevent auth listener from re-authenticating
+        isLoggingOutRef.current = true;
+        
         // CRITICAL: Set loading false FIRST so UI can update
         setIsLoading(false);
         setShowForceButton(false);
@@ -2080,13 +2094,18 @@
         // Clear any session storage flags
         sessionStorage.removeItem('clearSessionOnClose');
         
-        // Now sign out from Supabase (async, don't wait)
+        // Now sign out from Supabase
         try {
           await supabase.auth.signOut({ scope: 'global' });
           console.log('Supabase sign out successful');
         } catch (signOutError) {
           console.error('Supabase sign out error:', signOutError);
         }
+        
+        // Clear the flag after a delay to allow auth state to settle
+        setTimeout(() => {
+          isLoggingOutRef.current = false;
+        }, 1000);
         
         console.log('Logout complete');
       };
