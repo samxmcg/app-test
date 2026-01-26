@@ -1281,13 +1281,13 @@
         // Ensure page starts at top (fixes FAB cutoff on mobile)
         window.scrollTo(0, 0);
         
-        // Show "Force Continue" button after 5 seconds of loading
+        // Show "Force Continue" button after 3 seconds of loading
         const forceButtonTimer = setTimeout(() => {
           if (isLoading) {
-            console.warn('Loading taking too long, showing force button');
+            console.warn('Loading taking too long, showing force button after 3 seconds');
             setShowForceButton(true);
           }
-        }, 5000);
+        }, 3000);
         
         // Listen for auth state changes
         const { data: { subscription } } = supabaseAuth.onAuthStateChange(async (event, session) => {
@@ -1443,12 +1443,12 @@
       const loadSupabaseData = async (userId) => {
         console.log('loadSupabaseData called with userId:', userId);
         
-        // Emergency timeout - if loading takes more than 10 seconds, force finish
+        // Emergency timeout - if loading takes more than 8 seconds, force finish
         const timeoutId = setTimeout(() => {
-          console.error('LOADING TIMEOUT - Forcing finish');
+          console.error('LOADING TIMEOUT - Forcing finish after 8 seconds');
           setIsLoading(false);
-          alert('Loading timed out. Some data may not have loaded. Please refresh.');
-        }, 10000);
+          alert('Loading timed out after 8 seconds. You can continue but some data may not have loaded. Try refreshing.');
+        }, 8000);
         
         try {
           // Reset all data first (but keep current accent color unless overridden by profile)
@@ -1467,24 +1467,38 @@
           setSortBy('score');
           
           console.log('Attempting to load profile...');
-          // Load profile from Supabase
+          // Load profile from Supabase with timeout
           let profile = null;
           try {
-            profile = await supabaseDB.getProfile(userId);
+            // Race between profile fetch and 5-second timeout
+            const profilePromise = supabaseDB.getProfile(userId);
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Profile fetch timeout')), 5000)
+            );
+            
+            profile = await Promise.race([profilePromise, timeoutPromise]);
             console.log('Profile loaded:', profile ? 'Found' : 'Not found');
           } catch (profileError) {
-            console.error('Profile fetch error:', profileError);
-            // If profile doesn't exist, create it
-            if (profileError.code === 'PGRST116') {
-              console.log('Profile not found, creating new profile...');
+            console.error('Profile fetch error:', profileError.message);
+            
+            // If profile doesn't exist OR times out, create a new one
+            if (profileError.code === 'PGRST116' || profileError.message.includes('timeout')) {
+              console.log('Creating new profile for user...');
               try {
                 profile = await supabaseDB.upsertProfile(userId, {
                   name: '',
-                  accent_color: 'coral'
+                  accent_color: 'coral',
+                  profile_banner: 'gradient-1',
+                  show_taglines: true,
+                  show_separators: true,
+                  show_in_progress: true,
+                  sort_by: 'score'
                 });
-                console.log('New profile created:', profile);
+                console.log('New profile created successfully:', profile);
               } catch (createError) {
                 console.error('Failed to create profile:', createError);
+                // Continue anyway with defaults
+                profile = null;
               }
             }
           }
@@ -5499,6 +5513,12 @@
           {/* Navigation Menu - Fixed positioning aligned to top-right */}
           {showMenu && (
             <div className={`fixed top-[72px] w-64 ${theme.cardBg} rounded-2xl border ${theme.cardBorder} shadow-2xl z-[10001] overflow-hidden animate-scaleIn origin-top-right`} style={{ right: 'max(1rem, calc((100vw - 72rem) / 2 + 1rem))' }}>
+              {/* Logged In As Header */}
+              <div className={`px-4 py-3 ${darkMode ? 'bg-neutral-800/50' : 'bg-neutral-50'} border-b ${theme.cardBorder}`}>
+                <div className={`text-[10px] ${theme.textMuted} uppercase tracking-widest font-semibold mb-1`}>Logged in as</div>
+                <div className={`text-xs font-medium ${theme.text} truncate`}>{currentUser || user?.email || 'Unknown'}</div>
+              </div>
+              
               {/* Navigation */}
               <div className="p-2">
                 <div className={`text-[10px] ${theme.textMuted} uppercase tracking-widest font-semibold px-4 py-2`}>Navigation</div>
