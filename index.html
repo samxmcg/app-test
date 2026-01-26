@@ -2072,61 +2072,57 @@
 
       const handleLogout = async () => {
         console.log('handleLogout called');
+        
+        // CRITICAL: Set loading false FIRST so UI can update
+        setIsLoading(false);
+        setShowForceButton(false);
+        
+        // Force show auth modal IMMEDIATELY
+        setShowAuthModal(true);
+        
+        // Clear all auth state
+        setIsAuthenticated(false);
+        setCurrentUser('');
+        setSession(null);
+        setUser(null);
+        setStaySignedIn(true);
+        setAuthMode('login');
+        setAuthEmail('');
+        setAuthPassword('');
+        setAuthUsername('');
+        setAuthDateOfBirth('');
+        setAuthError('');
+        setPendingVerificationEmail('');
+        setShowMenu(false);
+        setView('albums');
+        
+        // Clear all albums and user data
+        setAlbums([]);
+        setUserName('');
+        setUserAge('');
+        setUserLocation('');
+        setUserBio('');
+        setUserProfilePic('');
+        setFavouriteAlbumId('');
+        setSpotlightAlbumId('');
+        setAccentColor('coral');
+        setProfileBanner('gradient-1');
+        setShowTaglines(true);
+        setShowSeparators(true);
+        setSortBy('score');
+        
+        // Clear any session storage flags
+        sessionStorage.removeItem('clearSessionOnClose');
+        
+        // Now sign out from Supabase (async, don't wait)
         try {
-          // Force clear all local state FIRST
-          setIsAuthenticated(false);
-          setCurrentUser('');
-          setSession(null);
-          setUser(null);
-          setStaySignedIn(true);
-          setAuthMode('login');
-          setAuthEmail('');
-          setAuthPassword('');
-          setAuthUsername('');
-          setAuthDateOfBirth('');
-          setAuthError('');
-          setPendingVerificationEmail('');
-          setShowMenu(false);
-          setView('albums');
-          
-          // Clear all albums and user data
-          setAlbums([]);
-          setUserName('');
-          setUserAge('');
-          setUserLocation('');
-          setUserBio('');
-          setUserProfilePic('');
-          setFavouriteAlbumId('');
-          setSpotlightAlbumId('');
-          setAccentColor('coral');
-          setProfileBanner('gradient-1');
-          setShowTaglines(true);
-          setShowSeparators(true);
-          setSortBy('score');
-          
-          // Clear any session storage flags
-          sessionStorage.removeItem('clearSessionOnClose');
-          
-          // Now sign out from Supabase
-          try {
-            await supabase.auth.signOut({ scope: 'global' });
-            console.log('Supabase sign out successful');
-          } catch (signOutError) {
-            console.error('Supabase sign out error:', signOutError);
-            // Even if Supabase sign out fails, we've cleared local state
-          }
-          
-          // Force show auth modal
-          setShowAuthModal(true);
-          setIsLoading(false);
-          
-          console.log('Logout complete, showing auth modal');
-        } catch (error) {
-          console.error('Logout error:', error);
-          // Force show auth modal anyway
-          setShowAuthModal(true);
-          setIsLoading(false);
+          await supabase.auth.signOut({ scope: 'global' });
+          console.log('Supabase sign out successful');
+        } catch (signOutError) {
+          console.error('Supabase sign out error:', signOutError);
         }
+        
+        console.log('Logout complete');
       };
 
       const handleDeleteAccount = async () => {
