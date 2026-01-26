@@ -1127,6 +1127,7 @@
       // Core state
       const [albums, setAlbums] = useState([]);
       const [isLoading, setIsLoading] = useState(true);
+      const [showForceButton, setShowForceButton] = useState(false);
       const [view, setView] = useState('albums');
       const [viewTransitioning, setViewTransitioning] = useState(false);
       const [viewMode, setViewMode] = useState('detailed');
@@ -1280,6 +1281,14 @@
         // Ensure page starts at top (fixes FAB cutoff on mobile)
         window.scrollTo(0, 0);
         
+        // Show "Force Continue" button after 5 seconds of loading
+        const forceButtonTimer = setTimeout(() => {
+          if (isLoading) {
+            console.warn('Loading taking too long, showing force button');
+            setShowForceButton(true);
+          }
+        }, 5000);
+        
         // Listen for auth state changes
         const { data: { subscription } } = supabaseAuth.onAuthStateChange(async (event, session) => {
           console.log('Auth state changed:', event);
@@ -1311,6 +1320,7 @@
         });
         
         return () => {
+          clearTimeout(forceButtonTimer);
           subscription.unsubscribe();
         };
       }, []);
@@ -1433,6 +1443,13 @@
       const loadSupabaseData = async (userId) => {
         console.log('loadSupabaseData called with userId:', userId);
         
+        // Emergency timeout - if loading takes more than 10 seconds, force finish
+        const timeoutId = setTimeout(() => {
+          console.error('LOADING TIMEOUT - Forcing finish');
+          setIsLoading(false);
+          alert('Loading timed out. Some data may not have loaded. Please refresh.');
+        }, 10000);
+        
         try {
           // Reset all data first (but keep current accent color unless overridden by profile)
           setAlbums([]);
@@ -1451,8 +1468,26 @@
           
           console.log('Attempting to load profile...');
           // Load profile from Supabase
-          const profile = await supabaseDB.getProfile(userId);
-          console.log('Profile loaded:', profile ? 'Found' : 'Not found');
+          let profile = null;
+          try {
+            profile = await supabaseDB.getProfile(userId);
+            console.log('Profile loaded:', profile ? 'Found' : 'Not found');
+          } catch (profileError) {
+            console.error('Profile fetch error:', profileError);
+            // If profile doesn't exist, create it
+            if (profileError.code === 'PGRST116') {
+              console.log('Profile not found, creating new profile...');
+              try {
+                profile = await supabaseDB.upsertProfile(userId, {
+                  name: '',
+                  accent_color: 'coral'
+                });
+                console.log('New profile created:', profile);
+              } catch (createError) {
+                console.error('Failed to create profile:', createError);
+              }
+            }
+          }
           
           if (profile) {
             setUserName(profile.name || '');
@@ -1515,11 +1550,13 @@
           }
           
           console.log('Data loading complete');
+          clearTimeout(timeoutId); // Cancel timeout if we finished successfully
         } catch (error) {
           console.error('CRITICAL ERROR loading data from Supabase:', error);
           console.error('Error details:', error.message, error.code);
+          clearTimeout(timeoutId); // Cancel timeout
           // Still set loading to false so user isn't stuck
-          alert('Failed to load your data. Please refresh the page. Error: ' + error.message);
+          alert('Failed to load your data. Please try logging out and back in. Error: ' + error.message);
         } finally {
           // ALWAYS set loading to false, even if there's an error
           console.log('Setting isLoading to false');
@@ -1535,13 +1572,17 @@
       };
 
       const saveProfile = useCallback(async (field, value) => {
+        console.log('saveProfile called with:', field, '=', value);
+        
         // Get current user
         let currentUser = user;
         if (!currentUser) {
+          console.log('User not found in state, fetching session...');
           try {
             const currentSession = await supabaseAuth.getSession();
             if (currentSession && currentSession.user) {
               currentUser = currentSession.user;
+              console.log('Got user from session:', currentUser.id);
             }
           } catch (err) {
             console.error('Failed to get session for saveProfile:', err);
@@ -1572,11 +1613,16 @@
           };
           
           const dbField = fieldMap[field] || field;
+          console.log('Saving to Supabase:', dbField, '=', value);
+          
           await supabaseDB.upsertProfile(currentUser.id, { [dbField]: value });
+          console.log('Profile saved successfully');
+          
           setProfileSaved(true);
           setTimeout(() => setProfileSaved(false), 1500);
         } catch (error) {
           console.error('Error saving profile:', error);
+          console.error('Error details:', error.message);
         }
       }, [user]);
 
@@ -2080,9 +2126,11 @@
         }
       };
 
-      const setAccentAndSave = (color) => {
+      const setAccentAndSave = async (color) => {
+        console.log('Setting accent color and saving:', color);
         setAccentColor(color);
-        saveProfile('accentColor', color);
+        await saveProfile('accentColor', color);
+        console.log('Accent color saved to Supabase');
       };
 
       // Score calculation - excludes tracks marked as excluded
@@ -3794,6 +3842,21 @@
                 </div>
               </div>
               <h2 className={`text-xl font-bold ${theme.text}`}>Loading Collection</h2>
+              {showForceButton && (
+                <button
+                  onClick={() => {
+                    console.warn('User forced continue from loading screen');
+                    setIsLoading(false);
+                    setShowForceButton(false);
+                  }}
+                  className={`mt-6 px-6 py-3 bg-gradient-to-r ${accent.from} ${accent.to} text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all animate-fadeIn`}
+                >
+                  Force Continue (Skip Loading)
+                </button>
+              )}
+              <p className={`mt-4 text-sm ${theme.textMuted}`}>
+                Open console (F12) to see loading details
+              </p>
             </div>
           </div>
         );
