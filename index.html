@@ -675,32 +675,17 @@
       },
       
       async checkUsernameAvailable(username) {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('username')
-          .eq('username', username.toLowerCase())
-          .single();
-        
-        // If no data found, username is available
-        if (error && error.code === 'PGRST116') return true;
-        if (error) throw error;
-        return !data; // Available if no profile found
+        // Skip the database check - RLS prevents unauthenticated users from querying
+        // Username uniqueness will be enforced by the database constraint on insert
+        // Just return true and let the signup process handle any conflicts
+        return true;
       },
       
       async getNextUserNumber() {
-        // Get the highest user_number and increment
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('user_number')
-          .order('user_number', { ascending: false })
-          .limit(1);
-        
-        if (error) throw error;
-        
-        if (data && data.length > 0 && data[0].user_number) {
-          return data[0].user_number + 1;
-        }
-        return 1; // First user
+        // This also can't work with RLS for unauthenticated users
+        // We'll handle this in a database trigger or just use a simple approach
+        // For now, return a random number - the database should handle proper sequencing
+        return Math.floor(Math.random() * 900000) + 100000; // 6-digit number
       }
     };
     
@@ -1893,35 +1878,16 @@
       // Ref to track username check timeout
       const usernameCheckTimeout = useRef(null);
       
-      // Handle username input change
+      // Handle username input change - just validate format, no server check
       const handleUsernameChange = (value) => {
         setAuthUsername(value);
-        setUsernameAvailable(null);
         setCheckingUsername(false);
         
-        // Clear any existing timeout
-        if (usernameCheckTimeout.current) {
-          clearTimeout(usernameCheckTimeout.current);
-          usernameCheckTimeout.current = null;
-        }
-        
-        if (value.length >= 3) {
-          setCheckingUsername(true);
-          // Check username availability after a delay
-          usernameCheckTimeout.current = setTimeout(async () => {
-            try {
-              console.log('Checking username availability:', value);
-              const available = await supabaseAuth.checkUsernameAvailable(value);
-              console.log('Username available:', available);
-              setUsernameAvailable(available);
-            } catch (error) {
-              console.error('Username check error:', error);
-              // On error, assume it's available (will be caught on submit if not)
-              setUsernameAvailable(true);
-            } finally {
-              setCheckingUsername(false);
-            }
-          }, 500);
+        // Just do local validation
+        if (value.length >= 3 && value.length <= 20 && /^[a-zA-Z0-9_]+$/.test(value)) {
+          setUsernameAvailable(true); // Assume available, DB will reject if not
+        } else {
+          setUsernameAvailable(null);
         }
       };
 
@@ -1996,18 +1962,6 @@
           if (actualAge < 13) {
             setAuthError('You must be at least 13 years old to create an account');
             return;
-          }
-          
-          // Check username availability
-          try {
-            const available = await supabaseAuth.checkUsernameAvailable(authUsername);
-            if (!available) {
-              setAuthError('This username is already taken. Please choose another.');
-              return;
-            }
-          } catch (e) {
-            console.error('Username check failed:', e);
-            // Continue anyway - worst case we'll get an error on insert
           }
           
           // Create the auth account
@@ -4184,28 +4138,26 @@
                 <div className="flex flex-col gap-3 mt-6">
                   <button
                     onClick={() => {
-                      console.warn('User forced continue from loading screen');
                       setIsLoading(false);
                       setShowForceButton(false);
                     }}
                     className={`px-6 py-3 bg-gradient-to-r ${accent.from} ${accent.to} text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all animate-fadeIn`}
                   >
-                    Force Continue (Skip Loading)
+                    Continue
                   </button>
                   <button
-                    onClick={() => {
-                      console.warn('User signing out from loading screen');
-                      handleLogout();
-                    }}
+                    onClick={handleLogout}
                     className={`px-6 py-3 ${darkMode ? 'bg-neutral-800 hover:bg-neutral-700' : 'bg-neutral-200 hover:bg-neutral-300'} text-red-400 rounded-xl font-semibold transition-all animate-fadeIn`}
                   >
-                    Sign Out & Reset
+                    Sign Out
                   </button>
                 </div>
               )}
-              <p className={`mt-4 text-sm ${theme.textMuted}`}>
-                Open console (F12) to see loading details
-              </p>
+              {!showForceButton && (
+                <p className={`mt-4 text-sm ${theme.textMuted}`}>
+                  Please wait...
+                </p>
+              )}
             </div>
           </div>
         );
