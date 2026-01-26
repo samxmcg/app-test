@@ -2071,15 +2071,22 @@
       };
 
       const handleLogout = async () => {
+        console.log('handleLogout called');
         try {
-          await supabaseAuth.signOut();
-          
-          // Clear local state (auth state listener will handle the rest)
+          // Force clear all local state FIRST
           setIsAuthenticated(false);
           setCurrentUser('');
-          setStaySignedIn(false);
+          setSession(null);
+          setUser(null);
+          setStaySignedIn(true);
           setAuthMode('login');
-          setShowAuthModal(true);
+          setAuthEmail('');
+          setAuthPassword('');
+          setAuthUsername('');
+          setAuthDateOfBirth('');
+          setAuthError('');
+          setPendingVerificationEmail('');
+          setShowMenu(false);
           setView('albums');
           
           // Clear all albums and user data
@@ -2096,8 +2103,29 @@
           setShowTaglines(true);
           setShowSeparators(true);
           setSortBy('score');
+          
+          // Clear any session storage flags
+          sessionStorage.removeItem('clearSessionOnClose');
+          
+          // Now sign out from Supabase
+          try {
+            await supabase.auth.signOut({ scope: 'global' });
+            console.log('Supabase sign out successful');
+          } catch (signOutError) {
+            console.error('Supabase sign out error:', signOutError);
+            // Even if Supabase sign out fails, we've cleared local state
+          }
+          
+          // Force show auth modal
+          setShowAuthModal(true);
+          setIsLoading(false);
+          
+          console.log('Logout complete, showing auth modal');
         } catch (error) {
           console.error('Logout error:', error);
+          // Force show auth modal anyway
+          setShowAuthModal(true);
+          setIsLoading(false);
         }
       };
 
@@ -4145,16 +4173,27 @@
               </div>
               <h2 className={`text-xl font-bold ${theme.text}`}>Loading Collection</h2>
               {showForceButton && (
-                <button
-                  onClick={() => {
-                    console.warn('User forced continue from loading screen');
-                    setIsLoading(false);
-                    setShowForceButton(false);
-                  }}
-                  className={`mt-6 px-6 py-3 bg-gradient-to-r ${accent.from} ${accent.to} text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all animate-fadeIn`}
-                >
-                  Force Continue (Skip Loading)
-                </button>
+                <div className="flex flex-col gap-3 mt-6">
+                  <button
+                    onClick={() => {
+                      console.warn('User forced continue from loading screen');
+                      setIsLoading(false);
+                      setShowForceButton(false);
+                    }}
+                    className={`px-6 py-3 bg-gradient-to-r ${accent.from} ${accent.to} text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all animate-fadeIn`}
+                  >
+                    Force Continue (Skip Loading)
+                  </button>
+                  <button
+                    onClick={() => {
+                      console.warn('User signing out from loading screen');
+                      handleLogout();
+                    }}
+                    className={`px-6 py-3 ${darkMode ? 'bg-neutral-800 hover:bg-neutral-700' : 'bg-neutral-200 hover:bg-neutral-300'} text-red-400 rounded-xl font-semibold transition-all animate-fadeIn`}
+                  >
+                    Sign Out & Reset
+                  </button>
+                </div>
               )}
               <p className={`mt-4 text-sm ${theme.textMuted}`}>
                 Open console (F12) to see loading details
