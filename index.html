@@ -1890,26 +1890,38 @@
         }
       };
       
+      // Ref to track username check timeout
+      const usernameCheckTimeout = useRef(null);
+      
       // Handle username input change
       const handleUsernameChange = (value) => {
         setAuthUsername(value);
         setUsernameAvailable(null);
+        setCheckingUsername(false);
+        
+        // Clear any existing timeout
+        if (usernameCheckTimeout.current) {
+          clearTimeout(usernameCheckTimeout.current);
+          usernameCheckTimeout.current = null;
+        }
+        
         if (value.length >= 3) {
           setCheckingUsername(true);
           // Check username availability after a delay
-          const timeoutId = setTimeout(async () => {
+          usernameCheckTimeout.current = setTimeout(async () => {
             try {
+              console.log('Checking username availability:', value);
               const available = await supabaseAuth.checkUsernameAvailable(value);
+              console.log('Username available:', available);
               setUsernameAvailable(available);
             } catch (error) {
               console.error('Username check error:', error);
-              setUsernameAvailable(null);
+              // On error, assume it's available (will be caught on submit if not)
+              setUsernameAvailable(true);
             } finally {
               setCheckingUsername(false);
             }
           }, 500);
-          // Cleanup on next change
-          return () => clearTimeout(timeoutId);
         }
       };
 
