@@ -1283,21 +1283,30 @@
         // Listen for auth state changes
         const { data: { subscription } } = supabaseAuth.onAuthStateChange(async (event, session) => {
           console.log('Auth state changed:', event);
-          setSession(session);
+          console.log('Session:', session ? 'Active' : 'None');
           
-          if (session) {
-            setUser(session.user);
-            setIsAuthenticated(true);
-            setCurrentUser(session.user.email);
-            await loadSupabaseData(session.user.id);
-            setShowAuthModal(false);
-          } else {
-            setUser(null);
-            setIsAuthenticated(false);
-            setCurrentUser('');
-            setAlbums([]);
+          try {
+            setSession(session);
+            
+            if (session) {
+              console.log('User authenticated:', session.user.email);
+              setUser(session.user);
+              setIsAuthenticated(true);
+              setCurrentUser(session.user.email);
+              await loadSupabaseData(session.user.id);
+              setShowAuthModal(false);
+            } else {
+              console.log('User logged out');
+              setUser(null);
+              setIsAuthenticated(false);
+              setCurrentUser('');
+              setAlbums([]);
+              setIsLoading(false);
+              setShowAuthModal(true);
+            }
+          } catch (error) {
+            console.error('Error in auth state change handler:', error);
             setIsLoading(false);
-            setShowAuthModal(true);
           }
         });
         
@@ -1422,8 +1431,10 @@
       }, []);
 
       const loadSupabaseData = async (userId) => {
+        console.log('loadSupabaseData called with userId:', userId);
+        
         try {
-          // Reset all data first
+          // Reset all data first (but keep current accent color unless overridden by profile)
           setAlbums([]);
           setUserName('');
           setUserAge('');
@@ -1432,14 +1443,17 @@
           setUserProfilePic('');
           setFavouriteAlbumId('');
           setSpotlightAlbumId('');
-          setAccentColor('coral');
+          // Don't reset accent color - it will be set from profile or stay as current
           setProfileBanner('gradient-1');
           setShowTaglines(true);
           setShowSeparators(true);
           setSortBy('score');
           
+          console.log('Attempting to load profile...');
           // Load profile from Supabase
           const profile = await supabaseDB.getProfile(userId);
+          console.log('Profile loaded:', profile ? 'Found' : 'Not found');
+          
           if (profile) {
             setUserName(profile.name || '');
             setUserAge(profile.age || '');
@@ -1448,9 +1462,17 @@
             setUserProfilePic(profile.profile_pic || '');
             setFavouriteAlbumId(profile.favourite_album_id || '');
             setSpotlightAlbumId(profile.spotlight_album_id || '');
+            
+            // Set accent color from profile, or use default if not set
             if (profile.accent_color && colorThemes[profile.accent_color]) {
+              console.log('Setting accent color from profile:', profile.accent_color);
               setAccentColor(profile.accent_color);
+            } else if (!profile.accent_color) {
+              // Only set to coral if profile has no accent color set
+              console.log('No accent color in profile, using default coral');
+              setAccentColor('coral');
             }
+            
             if (profile.profile_banner && bannerStyles[profile.profile_banner]) {
               setProfileBanner(profile.profile_banner);
             }
@@ -1458,10 +1480,17 @@
             setShowSeparators(profile.show_separators !== false);
             setShowInProgress(profile.show_in_progress !== false);
             setSortBy(profile.sort_by || 'score');
+          } else {
+            // No profile found, use defaults
+            console.log('No profile found, using defaults');
+            setAccentColor('coral');
           }
           
+          console.log('Attempting to load albums...');
           // Load albums from Supabase
           const albumsData = await supabaseDB.getAlbums(userId);
+          console.log('Albums loaded:', albumsData ? albumsData.length : 0, 'albums');
+          
           if (albumsData && albumsData.length > 0) {
             // Convert Supabase format to app format (using OLD property names for compatibility)
             const formattedAlbums = albumsData.map(album => ({
@@ -1484,10 +1513,18 @@
             }));
             setAlbums(formattedAlbums);
           }
+          
+          console.log('Data loading complete');
         } catch (error) {
-          console.error('Error loading data from Supabase:', error);
+          console.error('CRITICAL ERROR loading data from Supabase:', error);
+          console.error('Error details:', error.message, error.code);
+          // Still set loading to false so user isn't stuck
+          alert('Failed to load your data. Please refresh the page. Error: ' + error.message);
+        } finally {
+          // ALWAYS set loading to false, even if there's an error
+          console.log('Setting isLoading to false');
+          setIsLoading(false);
         }
-        setIsLoading(false);
       };
 
       // Keep old localStorage function for backwards compatibility during migration
@@ -1547,7 +1584,9 @@
       const handleLogin = async () => {
         try {
           setAuthError('');
-          const { user } = await supabaseAuth.signIn(authEmail, authPassword);
+          const { user, session } = await supabaseAuth.signIn(authEmail, authPassword);
+          
+          console.log('Login response:', { user, session });
           
           // Auth state change will handle the rest via listener
           setAuthUsername('');
@@ -1559,10 +1598,30 @@
           if (error.message.includes('Invalid login credentials')) {
             setAuthError('Invalid email or password');
           } else if (error.message.includes('Email not confirmed')) {
-            setAuthError('Please check your email to confirm your account');
+            setAuthError('Please confirm your email address before signing in. Check your inbox for a confirmation link.');
+          } else if (error.message.includes('not confirmed')) {
+            setAuthError('Email not verified. Please check your inbox for the confirmation link.');
           } else {
             setAuthError(error.message || 'Login failed. Please try again.');
           }
+        }
+      };
+      
+      const resendVerificationEmail = async () => {
+        if (!authEmail.trim()) {
+          setAuthError('Please enter your email address first');
+          return;
+        }
+        
+        try {
+          await supabase.auth.resend({
+            type: 'signup',
+            email: authEmail
+          });
+          alert('Verification email sent! Please check your inbox.');
+        } catch (error) {
+          console.error('Resend error:', error);
+          setAuthError('Failed to resend email. Please try again.');
         }
       };
 
@@ -1599,14 +1658,21 @@
           
           const { user } = await supabaseAuth.signUp(authEmail, authPassword, authUsername);
           
-          // Success - user will be auto-logged in via auth state listener
-          setAuthUsername('');
-          setAuthEmail('');
-          setAuthPassword('');
-          setTimeout(() => window.scrollTo(0, 0), 100);
+          // Check if email confirmation is required
+          if (user && user.identities && user.identities.length === 0) {
+            // Email already registered
+            setAuthError('This email is already registered. Please sign in instead.');
+            return;
+          }
           
-          // Show welcome modal for new users
-          setShowWelcomeModal(true);
+          // Show email verification message
+          setAuthError('');
+          alert(`Account created! Please check ${authEmail} for a confirmation link before signing in.`);
+          
+          // Switch to login mode
+          setAuthMode('login');
+          setAuthUsername('');
+          setAuthPassword('');
         } catch (error) {
           console.error('Signup error:', error);
           if (error.message.includes('already registered')) {
@@ -3767,7 +3833,15 @@
                 
                 {authError && (
                   <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-xl animate-shake">
-                    <p className="text-sm text-red-400 text-center font-medium">{authError}</p>
+                    <p className="text-sm text-red-400 text-center font-medium mb-2">{authError}</p>
+                    {(authError.includes('Email not confirmed') || authError.includes('not verified') || authError.includes('confirm your email')) && (
+                      <button
+                        onClick={resendVerificationEmail}
+                        className="w-full mt-2 px-3 py-2 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg transition-colors font-medium"
+                      >
+                        Resend Verification Email
+                      </button>
+                    )}
                   </div>
                 )}
                 
