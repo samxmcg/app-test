@@ -1220,7 +1220,7 @@
       // Authentication state
       const [isAuthenticated, setIsAuthenticated] = useState(false);
       const [currentUser, setCurrentUser] = useState('');
-      const [staySignedIn, setStaySignedIn] = useState(true);
+      const [staySignedIn, setStaySignedIn] = useState(false);
       const [showAuthModal, setShowAuthModal] = useState(false);
       const [authMode, setAuthMode] = useState('login'); // 'login', 'create', 'verify', 'change'
       const [authUsername, setAuthUsername] = useState('');
@@ -1231,6 +1231,8 @@
       const [usernameAvailable, setUsernameAvailable] = useState(null);
       const [checkingUsername, setCheckingUsername] = useState(false);
       const isLoggingOutRef = useRef(false); // Ref to prevent re-auth during logout
+      const isLoadingDataRef = useRef(false); // Ref to prevent duplicate data loading
+      const lastAuthEventRef = useRef(null); // Track last auth event to prevent duplicates
       
       // Supabase session state
       const [session, setSession] = useState(null);
@@ -1390,39 +1392,77 @@
 
       // Load data and check authentication with Supabase
       useEffect(() => {
-        checkSupabaseAuth();
         // Ensure page starts at top (fixes FAB cutoff on mobile)
         window.scrollTo(0, 0);
         
-        // Show "Force Continue" button after 3 seconds of loading
+        // Show "Force Continue" button after 5 seconds of loading (increased from 3)
         const forceButtonTimer = setTimeout(() => {
           if (isLoading) {
-            console.warn('Loading taking too long, showing force button after 3 seconds');
+            console.warn('Loading taking too long, showing force button after 5 seconds');
             setShowForceButton(true);
           }
-        }, 3000);
+        }, 5000);
         
         // Listen for auth state changes
         const { data: { subscription } } = supabaseAuth.onAuthStateChange(async (event, session) => {
           console.log('Auth state changed:', event, 'Session:', session ? 'Active' : 'None');
           
           // CRITICAL: If we're in the middle of logging out, ignore any auth events
-          // This prevents the race condition where signOut triggers SIGNED_IN again
           if (isLoggingOutRef.current) {
             console.log('Ignoring auth event - logout in progress');
+            return;
+          }
+          
+          // Prevent duplicate event processing
+          const eventKey = `${event}-${session?.user?.id || 'none'}`;
+          if (lastAuthEventRef.current === eventKey && event !== 'SIGNED_OUT') {
+            console.log('Ignoring duplicate auth event:', eventKey);
+            return;
+          }
+          lastAuthEventRef.current = eventKey;
+          
+          // Prevent duplicate data loading
+          if (isLoadingDataRef.current && event === 'SIGNED_IN') {
+            console.log('Already loading data, skipping duplicate load');
             return;
           }
           
           try {
             if (event === 'SIGNED_OUT') {
               console.log('User signed out event received');
+              lastAuthEventRef.current = null; // Reset on sign out
               setSession(null);
               setUser(null);
               setIsAuthenticated(false);
               setCurrentUser('');
               setAlbums([]);
               setIsLoading(false);
+              setShowForceButton(false);
               setShowAuthModal(true);
+              return;
+            }
+            
+            if (event === 'INITIAL_SESSION') {
+              // Handle initial session check
+              if (session) {
+                console.log('Initial session found:', session.user.email);
+                setSession(session);
+                setUser(session.user);
+                setIsAuthenticated(true);
+                setCurrentUser(session.user.email);
+                
+                isLoadingDataRef.current = true;
+                try {
+                  await loadSupabaseData(session.user.id);
+                } finally {
+                  isLoadingDataRef.current = false;
+                }
+                setShowAuthModal(false);
+              } else {
+                console.log('No initial session');
+                setIsLoading(false);
+                setShowAuthModal(true);
+              }
               return;
             }
             
@@ -1434,30 +1474,35 @@
               setIsAuthenticated(true);
               setCurrentUser(session.user.email);
               
-              // Check if this is a new user who just verified their email
-              const existingProfile = await supabaseDB.getProfile(session.user.id);
-              
-              if (!existingProfile) {
-                console.log('New user detected, creating profile...');
-                const userMetadata = session.user.user_metadata || {};
-                const username = userMetadata.username || session.user.email.split('@')[0];
-                const dateOfBirth = userMetadata.date_of_birth || null;
+              isLoadingDataRef.current = true;
+              try {
+                // Check if this is a new user who just verified their email
+                const existingProfile = await supabaseDB.getProfile(session.user.id);
                 
-                try {
-                  await supabaseDB.createProfile(
-                    session.user.id,
-                    session.user.email,
-                    username,
-                    dateOfBirth
-                  );
-                  console.log('Profile created successfully for new user');
-                  setShowWelcomeModal(true);
-                } catch (profileError) {
-                  console.error('Error creating profile:', profileError);
+                if (!existingProfile) {
+                  console.log('New user detected, creating profile...');
+                  const userMetadata = session.user.user_metadata || {};
+                  const username = userMetadata.username || session.user.email.split('@')[0];
+                  const dateOfBirth = userMetadata.date_of_birth || null;
+                  
+                  try {
+                    await supabaseDB.createProfile(
+                      session.user.id,
+                      session.user.email,
+                      username,
+                      dateOfBirth
+                    );
+                    console.log('Profile created successfully for new user');
+                    setShowWelcomeModal(true);
+                  } catch (profileError) {
+                    console.error('Error creating profile:', profileError);
+                  }
                 }
+                
+                await loadSupabaseData(session.user.id);
+              } finally {
+                isLoadingDataRef.current = false;
               }
-              
-              await loadSupabaseData(session.user.id);
               setShowAuthModal(false);
               setPendingVerificationEmail('');
             } else if (!session) {
@@ -1471,6 +1516,7 @@
             }
           } catch (error) {
             console.error('Error in auth state change handler:', error);
+            isLoadingDataRef.current = false;
             setIsLoading(false);
           }
         });
@@ -1816,6 +1862,10 @@
         try {
           setAuthError('');
           
+          // CRITICAL: Reset logout flag before attempting login
+          isLoggingOutRef.current = false;
+          lastAuthEventRef.current = null;
+          
           const loginIdentifier = authEmail.trim();
           const password = authPassword;
           
@@ -2052,6 +2102,8 @@
         
         // Set flag to prevent auth listener from re-authenticating
         isLoggingOutRef.current = true;
+        lastAuthEventRef.current = null; // Reset event tracking
+        isLoadingDataRef.current = false; // Reset loading flag
         
         // CRITICAL: Set loading false FIRST so UI can update
         setIsLoading(false);
@@ -2065,7 +2117,7 @@
         setCurrentUser('');
         setSession(null);
         setUser(null);
-        setStaySignedIn(true);
+        setStaySignedIn(false);
         setAuthMode('login');
         setAuthEmail('');
         setAuthPassword('');
@@ -2096,16 +2148,18 @@
         
         // Now sign out from Supabase
         try {
-          await supabase.auth.signOut({ scope: 'global' });
+          await supabase.auth.signOut({ scope: 'local' });
           console.log('Supabase sign out successful');
         } catch (signOutError) {
           console.error('Supabase sign out error:', signOutError);
         }
         
-        // Clear the flag after a delay to allow auth state to settle
+        // Clear the flag AFTER sign out completes
+        // Use a slightly longer delay to ensure auth state settles
         setTimeout(() => {
           isLoggingOutRef.current = false;
-        }, 1000);
+          console.log('Logout flag cleared - ready for new login');
+        }, 500);
         
         console.log('Logout complete');
       };
@@ -3379,6 +3433,16 @@
         
         console.log('Album data to save:', albumData);
         
+        // Helper function to add timeout to promises
+        const withTimeout = (promise, ms, errorMsg) => {
+          return Promise.race([
+            promise,
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error(errorMsg)), ms)
+            )
+          ]);
+        };
+        
         try {
           // Check if this is an update or new album
           const existingAlbum = albums.find(a => a.id === albumId);
@@ -3387,17 +3451,29 @@
           if (existingAlbum && existingAlbum.dbId) {
             // Update existing album
             console.log('Updating album:', existingAlbum.dbId);
-            savedData = await supabaseDB.updateAlbum(existingAlbum.dbId, albumData);
+            savedData = await withTimeout(
+              supabaseDB.updateAlbum(existingAlbum.dbId, albumData),
+              10000,
+              'Update timed out - please check your connection and try again'
+            );
           } else {
             // Create new album
             console.log('Creating new album for user:', currentUser.id);
-            savedData = await supabaseDB.createAlbum(currentUser.id, albumData);
+            savedData = await withTimeout(
+              supabaseDB.createAlbum(currentUser.id, albumData),
+              10000,
+              'Save timed out - please check your connection and try again'
+            );
           }
           
           console.log('Save successful:', savedData);
           
-          // Reload data from Supabase and wait for it
-          await loadSupabaseData(currentUser.id);
+          // Reload data from Supabase (with timeout)
+          try {
+            await withTimeout(loadSupabaseData(currentUser.id), 8000, 'Reload timed out');
+          } catch (reloadError) {
+            console.warn('Reload after save timed out, but save was successful');
+          }
           
           setUserSetInProgress(false); // Reset flag after save
           setHasUnsavedChanges(false);
